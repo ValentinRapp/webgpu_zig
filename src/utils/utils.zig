@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const wgpu = @import("webgpu");
 const glfw = @import("glfw");
+const main = @import("../main.zig");
 
 /// Creates a WebGPU surface from a GLFW window (cross-platform)
 pub fn createSurface(instance: *wgpu.instance.Instance, window: *glfw.Window) *wgpu.surface.Surface {
@@ -130,4 +131,43 @@ fn createLinuxSurface(instance: *wgpu.instance.Instance, window: *glfw.Window) *
         .next = @ptrCast(&wl_surface),
         .label = "surface",
     });
+}
+
+pub fn processInput(window: ?*glfw.Window, deltaTime: f64) void {
+    if (glfw.getKey(window, glfw.KeyEscape) == glfw.Press) {
+        glfw.setWindowShouldClose(window, true);
+    }
+
+    if (glfw.getKey(window, glfw.KeyW) == glfw.Press) {
+        main.cam.processKeyboard(.FORWARD, @floatCast(deltaTime));
+    }
+    if (glfw.getKey(window, glfw.KeyS) == glfw.Press) {
+        main.cam.processKeyboard(.BACKWARD, @floatCast(deltaTime));
+    }
+    if (glfw.getKey(window, glfw.KeyA) == glfw.Press) {
+        main.cam.processKeyboard(.LEFT, @floatCast(deltaTime));
+    }
+    if (glfw.getKey(window, glfw.KeyD) == glfw.Press) {
+        main.cam.processKeyboard(.RIGHT, @floatCast(deltaTime));
+    }
+}
+
+var lastX: f32 = undefined;
+var lastY: f32 = undefined;
+var firstMouse = true;
+
+pub fn mouseCallback(window: ?*glfw.Window, xpos: f64, ypos: f64) callconv(.c) void {
+    _ = window;
+    if (firstMouse) {
+        lastX = @floatCast(xpos);
+        lastY = @floatCast(ypos);
+        firstMouse = false;
+    }
+
+    const xoffset = @as(f32, @floatCast(xpos)) - lastX;
+    const yoffset = lastY - @as(f32, @floatCast(ypos));
+    lastX = @floatCast(xpos);
+    lastY = @floatCast(ypos);
+
+    main.cam.processMouseMovement(xoffset, yoffset);
 }

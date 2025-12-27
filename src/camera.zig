@@ -8,11 +8,9 @@ pub const Camera_Movement = enum {
     RIGHT
 };
 
-const PI = std.math.pi_f32;
-const YAW = 60.0;
-const PITCH = -10.0;
+const PI = std.math.pi;
 const SPEED = 10.0;
-const SENSITIVITY = 0.1;
+const SENSITIVITY = std.math.degreesToRadians(0.1);
 
 fn updateCameraVectors(self: *Camera) void {
     self.Front = zm.vec.normalize(zm.Vec3f{
@@ -44,14 +42,19 @@ pub const Camera = struct {
     pub fn processKeyboard(self: *Camera, direction: Camera_Movement, deltaTime: f32) void {
         const velocity = self.MovementSpeed * deltaTime;
         const velocityVector = zm.Vec3f{velocity, velocity, velocity};
-        if (direction == Camera_Movement.FORWARD) {
-            self.Position += self.Front * velocityVector;
-        } else if (direction == Camera_Movement.BACKWARD) {
-            self.Position -= self.Front * velocityVector;
-        } else if (direction == Camera_Movement.LEFT) {
-            self.Position -= self.Right * velocityVector;
-        } else if (direction == Camera_Movement.RIGHT) {
-            self.Position += self.Right * velocityVector;
+        switch (direction) {
+            .FORWARD => {
+                self.Position += self.Front * velocityVector;
+            },
+            .BACKWARD => {
+                self.Position -= self.Front * velocityVector;
+            },
+            .LEFT => {
+                self.Position -= self.Right * velocityVector;
+            },
+            .RIGHT => {
+                self.Position += self.Right * velocityVector;
+            }
         }
     }
 
@@ -59,11 +62,11 @@ pub const Camera = struct {
         self.Yaw += xoffset * self.MouseSensitivity;
         self.Pitch += yoffset * self.MouseSensitivity;
 
-        if (self.Pitch > PI / 2) {
-            self.Pitch = PI / 2;
+        if (self.Pitch > PI / 2.0) {
+            self.Pitch = PI / 2.0;
         }
-        if (self.Pitch < -PI / 2) {
-            self.Pitch = -PI / 2;
+        if (self.Pitch < -PI / 2.0) {
+            self.Pitch = -PI / 2.0;
         }
 
         updateCameraVectors(self);
