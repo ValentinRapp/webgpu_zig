@@ -39,15 +39,15 @@ pub fn main() !void {
 
     glfw.setInputMode(window, glfw.Cursor, glfw.CursorDisabled);
     _ = glfw.setCursorPosCallback(window, utils.mouseCallback);
+    _ = glfw.setCharCallback(window, utils.character_callback);
 
     var webgpu = try webgpu_utils.WebGPU.create(allocator, window, width, height);
     defer webgpu.destroy();
 
-    var texture = try texture_handler.loadTexture("src/assets/textures/obama.png", .color, webgpu.device, webgpu.queue);
+    var texture = try texture_handler.loadTexture("src/assets/textures/dust2albedo.jpg", .color, webgpu.device, webgpu.queue);
     defer texture.release();
-
-    // var texture2 = try texture_handler.loadTexture("assets/textures/trollface.jpg", .color, webgpu.device, webgpu.queue);
-    // defer texture2.release();
+    var lightmapTexture = try texture_handler.loadTexture("src/assets/textures/dust2lightmap.jpg", .color, webgpu.device, webgpu.queue);
+    defer lightmapTexture.release();
 
     const sampler_descriptor = wgpu.sampler.SamplerDescriptor{
         .address_mode_u = .clamp_to_edge,
@@ -72,7 +72,7 @@ pub fn main() !void {
     });
     defer shader_module.release();
 
-    var mesh_data = mesh_handler.Mesh.fromFile(allocator, @embedFile("assets/models/obamid.obj")) catch |err| {
+    var mesh_data = mesh_handler.Mesh.fromFile(allocator, @embedFile("assets/models/dust3baked.obj")) catch |err| {
         std.debug.print("Failed to load model: {}\n", .{err});
         return err;
     };
@@ -80,14 +80,6 @@ pub fn main() !void {
 
     var mesh = mesh_handler.WgpuMesh.create(mesh_data, webgpu.device);
     defer mesh.destroy();
-
-    // var mesh2_data = mesh_handler.Mesh{
-    //     .vertices = vertices2,
-    //     .indices = indices2,
-    // };
-    // defer mesh2_data.destroy(allocator);
-    // var mesh2 = mesh_handler.WgpuMesh.create(mesh2_data, webgpu.device);
-    // defer mesh2.destroy();
 
     var proj_data = zm.Mat4f.perspective(70.0 * std.math.pi / 180.0, @as(f32, @floatCast(width)) / @as(f32, @floatCast(height)), 0.1, 100.0);
     const projBuffer = webgpu_utils.createBuffer(webgpu.device, f32, @as(*const [16]f32, @ptrCast(&proj_data)), .{ .uniform = true, .copy_dst = true });
@@ -111,13 +103,13 @@ pub fn main() !void {
         .primitive = .{
             .topology = .triangle_list,
             .front_face = .counter_clockwise,
-            .cull_mode = .none,
+            .cull_mode = .back,
         },
         .depth_stencil = &webgpu.depth_stencil_state,
         .multisample = .{},
         .fragment = &.{
             .module = shader_module,
-            .entry_point = wgpu.StringView.sliced("fs_main"),
+            .entry_point = wgpu.StringView.sliced("fs_static"),
             .constant_count = 0,
             .constants = null,
             .target_count = webgpu.color_targets.len,
@@ -129,18 +121,13 @@ pub fn main() !void {
     var textureView = texture.createView(null);
     defer textureView.release();
 
-    var texture_views = [_]*wgpu.texture_view.TextureView{textureView};
+    var lightmapTextureView = lightmapTexture.createView(null);
+    defer lightmapTextureView.release();
 
-    // var textureView2 = texture2.createView(null);
-    // defer textureView2.release();
-
-    // var textures_views_2 = [_]*wgpu.texture_view.TextureView{textureView2};
+    var texture_views = [_]*wgpu.texture_view.TextureView{textureView, lightmapTextureView};
 
     var model_proj = model_handler.Projection.createBasicModel(webgpu.device);
     defer model_proj.buffer.release();
-
-    // var model_proj_2 = model_handler.Projection.createBasicModel(webgpu.device);
-    // defer model_proj_2.buffer.release();
 
     var model = model_handler.Model.create(
         mesh,
@@ -152,13 +139,10 @@ pub fn main() !void {
         webgpu.pipelines.get(.basic).?,
         webgpu.device,
         sampler,
-        1,
+        texture_views.len,
         &texture_views,
     );
     defer model.destroy();
-
-    // var model2 = model_handler.Model.create(mesh2, .{ .{ .projection = proj_data, .buffer = projBuffer }, .{ .projection = view_data, .buffer = viewBuffer }, model_proj_2 }, webgpu.pipelines.get(.basic).?, webgpu.device, sampler, textures_views_2.len, &textures_views_2);
-    // defer model2.destroy();
 
     try webgpu.setModels(.basic, &.{ model });
 
@@ -167,8 +151,6 @@ pub fn main() !void {
     var lastFrame = glfw.getTime();
     var currentFrame: f64 = undefined;
     var deltaTime: f64 = undefined;
-
-    var rotation_amount: f32 = 0.0;
 
     // Main loop
     while (!glfw.windowShouldClose(window)) {
@@ -180,16 +162,16 @@ pub fn main() !void {
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        rotation_amount -= 0.03;
-        model.model_proj.projection = zm.Mat4f.rotation(zm.Vec3f{ 0.0, 1.0, 0.0 }, rotation_amount);
+        // rotation_amount -= 0.03;
+        // model.model_proj.projection = zm.Mat4f.rotation(zm.Vec3f{ 0.0, 1.0, 0.0 }, rotation_amount);
         // model2.model_proj.projection = zm.Mat4f.rotation(zm.Vec3f{ 0.0, 1.0, 0.0 }, -rotation_amount);
         // model2.model_proj.projection.data[7] = 0.3;
-        model.model_proj.projection.data[7] = -0.1;
+        // model.model_proj.projection.data[7] = -0.1;
 
         // Update uniform buffers
         view_data = cam.getViewMatrix();
         webgpu.queue.writeBuffer(viewBuffer, f32, @as(*const [16]f32, @ptrCast(&view_data)), 0);
-        webgpu.queue.writeBuffer(model.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model.model_proj.projection)), 0);
+        // webgpu.queue.writeBuffer(model.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model.model_proj.projection)), 0);
         // webgpu.queue.writeBuffer(model2.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model2.model_proj.projection)), 0);
 
         var frame = webgpu.beginFrame() catch |err| {

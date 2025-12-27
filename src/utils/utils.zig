@@ -133,6 +133,19 @@ fn createLinuxSurface(instance: *wgpu.instance.Instance, window: *glfw.Window) *
     });
 }
 
+var cursor_enabled: bool = false;
+
+pub fn character_callback(window: ?*glfw.Window, codepoint: u32) callconv(.c) void {
+    if (codepoint == 99) { // 'c' key to toggle cursor (idk which macro it refers to)
+        cursor_enabled = !cursor_enabled;
+        if (cursor_enabled) {
+            glfw.setInputMode(window, glfw.Cursor, glfw.CursorNormal);
+        } else {
+            glfw.setInputMode(window, glfw.Cursor, glfw.CursorDisabled);
+        }
+    }
+}
+
 pub fn processInput(window: ?*glfw.Window, deltaTime: f64) void {
     if (glfw.getKey(window, glfw.KeyEscape) == glfw.Press) {
         glfw.setWindowShouldClose(window, true);

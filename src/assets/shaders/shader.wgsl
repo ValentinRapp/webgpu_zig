@@ -33,12 +33,21 @@ fn vs_main(
 }
 
 @group(1) @binding(0) var mySampler: sampler;
-@group(1) @binding(1) var myTexture: texture_2d<f32>;
+@group(1) @binding(1) var albedo: texture_2d<f32>;
+@group(1) @binding(2) var lightmap: texture_2d<f32>;
 
 @fragment
-fn fs_main(
+fn fs_static(
     fragData: VertexOut
 ) -> @location(0) vec4f {
-    return textureSample(myTexture, mySampler, fragData.texcoord);
+    return textureSample(albedo, mySampler, fragData.texcoord) *
+        textureSample(lightmap, mySampler, fragData.texcoord);
+}
+
+@fragment
+fn fs_unlit(
+    fragData: VertexOut
+) -> @location(0) vec4f {
+    return textureSample(albedo, mySampler, fragData.texcoord);
     // return vec4f(fragData.normal, 1.0);
 }
