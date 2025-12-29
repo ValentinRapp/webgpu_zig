@@ -106,7 +106,7 @@ pub fn createBindGroup(pipeline: *wgpu.render_pipeline.RenderPipeline, device: *
     });
 }
 
-pub const RenderFrame = struct {
+const RenderFrame = struct {
     encoder: *wgpu.command_encoder.CommandEncoder,
     render_pass: *wgpu.render_pass_encoder.RenderPassEncoder,
     surface_view: *wgpu.texture_view.TextureView,
@@ -141,18 +141,16 @@ pub const WebGPU = struct {
     depth_stencil_state: wgpu.render_pipeline.DepthStencilState,
 
     pipelines: std.AutoHashMap(Pipelines, *wgpu.render_pipeline.RenderPipeline),
-    models: std.AutoHashMap(Pipelines, []model_handler.Model),
-    nb_models: std.AutoHashMap(Pipelines, usize),
+    models: std.AutoHashMap(Pipelines, std.ArrayList(model_handler.Model)),
 
     pub fn create(allocator: std.mem.Allocator, window: *c_long, width: u32, height: u32) !WebGPU {
         var webgpu: WebGPU = undefined;
 
         webgpu.allocator = allocator;
         webgpu.pipelines = std.AutoHashMap(Pipelines, *wgpu.render_pipeline.RenderPipeline).init(allocator);
-        webgpu.models = std.AutoHashMap(Pipelines, []model_handler.Model).init(allocator);
-        webgpu.nb_models = std.AutoHashMap(Pipelines, usize).init(allocator);
+        webgpu.models = std.AutoHashMap(Pipelines, std.ArrayList(model_handler.Model)).init(allocator);
 
-        try webgpu.models.put(.basic, try allocator.alloc(model_handler.Model, 32));
+        try webgpu.models.put(.basic, try std.ArrayList(model_handler.Model).initCapacity(allocator, 32));
 
         webgpu.instance = wgpu.instance.Instance.create(null);
         webgpu.surface = utils.createSurface(webgpu.instance, window);
@@ -259,27 +257,37 @@ pub const WebGPU = struct {
         };
     }
 
-    pub fn draw(self: *WebGPU, render_pass: *wgpu.render_pass_encoder.RenderPassEncoder) void {
+    pub fn draw(self: *WebGPU) !void {
+        var frame = try self.beginFrame();
+
         var iterator = self.models.iterator();
         while (iterator.next()) |entry| {
-            render_pass.setPipeline(self.pipelines.get(entry.key_ptr.*).?);
+            frame.render_pass.setPipeline(self.pipelines.get(entry.key_ptr.*).?);
             const models_array = entry.value_ptr.*;
-            const nb_models = self.nb_models.get(entry.key_ptr.*).?;
-            for (models_array[0..nb_models]) |*model| {
-                model.draw(render_pass);
+            for (models_array.items) |*model| {
+                model.draw(frame.render_pass);
             }
         }
+
+        frame.render_pass.end();
+        frame.render_pass.release();
+
+        frame.submit(self.queue, self.surface);
     }
 
     pub fn setModels(self: *WebGPU, pipeline: Pipelines, models: []const model_handler.Model) !void {
-        const models_array = self.models.get(pipeline).?;
-        if (models.len > models_array.len) {
-            return error.TooManyModels;
+        const models_array = self.models.getPtr(pipeline).?;
+        if (models.len > models_array.items.len) {
+            try models_array.resize(self.allocator, models.len);
         }
         for (models, 0..) |model, i| {
-            models_array[i] = model;
+            models_array.items[i] = model;
         }
-        try self.nb_models.put(pipeline, models.len);
+    }
+
+    pub fn appendModel(self: *WebGPU, pipeline: Pipelines, model: model_handler.Model) !void {
+        const models_array = self.models.getPtr(pipeline).?;
+        try models_array.append(self.allocator, model);
     }
 
     pub fn destroy(self: *WebGPU) void {
@@ -294,9 +302,8 @@ pub const WebGPU = struct {
 
         var iterator = self.models.iterator();
         while (iterator.next()) |entry| {
-            self.allocator.free(entry.value_ptr.*);
+            entry.value_ptr.*.deinit(self.allocator);
         }
         self.models.deinit();
-        self.nb_models.deinit();
     }
 };

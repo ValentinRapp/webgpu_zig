@@ -166,7 +166,7 @@ pub fn main() !void {
 
         // rotation_amount -= 0.03;
         // model.model_proj.projection = zm.Mat4f.rotation(zm.Vec3f{ 0.0, 1.0, 0.0 }, rotation_amount);
-        // model2.model_proj.projection = zm.Mat4f.rotation(zm.Vec3f{ 0.0, 1.0, 0.0 }, -rotation_amount);
+        // model2.model_proj.projection = zm.Mat4f.rotation(zm.Vec3f{ 0.0, 1.0, 0.0 }, std.math.pi);
         // model2.model_proj.projection.data[7] = 0.3;
         // model.model_proj.projection.data[7] = -0.1;
 
@@ -176,16 +176,9 @@ pub fn main() !void {
         // webgpu.queue.writeBuffer(model.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model.model_proj.projection)), 0);
         // webgpu.queue.writeBuffer(model2.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model2.model_proj.projection)), 0);
 
-        var frame = webgpu.beginFrame() catch |err| {
-            std.debug.print("Failed to begin frame: {}\n", .{err});
+        webgpu.draw() catch |err| {
+            std.debug.print("Failed to draw frame: {}\n", .{err});
             continue;
         };
-
-        webgpu.draw(frame.render_pass);
-
-        frame.render_pass.end();
-        frame.render_pass.release();
-
-        frame.submit(webgpu.queue, webgpu.surface);
     }
 }
