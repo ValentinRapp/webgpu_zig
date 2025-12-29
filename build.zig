@@ -45,20 +45,35 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Link GLFW library
-    exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
-    exe.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
-    exe.root_module.linkSystemLibrary("glfw", .{});
-    exe.root_module.linkFramework("Cocoa", .{});
-    exe.root_module.linkFramework("IOKit", .{});
-    exe.root_module.linkFramework("CoreFoundation", .{});
-    exe.root_module.linkFramework("QuartzCore", .{});
-    exe.root_module.linkFramework("Metal", .{});
+    if (target.result.os.tag == .windows) {
+        exe.addLibraryPath(.{ .cwd_relative = "C:/msys64/mingw64/lib" });
+        exe.addIncludePath(.{ .cwd_relative = "C:/msys64/mingw64/include" });
 
-    // Link wgpu-native library
-    exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
-    exe.root_module.linkSystemLibrary("wgpu_native", .{});
+        exe.linkSystemLibrary("glfw3");
+        exe.linkSystemLibrary("gdi32");
 
+        exe.linkSystemLibrary("wgpu_native");
+
+        const install_dll = b.addInstallBinFile(
+            .{ .cwd_relative = "C:/msys64/mingw64/bin/wgpu_native.dll" },
+            "wgpu_native.dll"
+        );
+        b.getInstallStep().dependOn(&install_dll.step);
+    } else if (target.result.os.tag == .macos) {
+        exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
+        exe.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
+        exe.root_module.linkSystemLibrary("glfw", .{});
+        exe.root_module.linkFramework("Cocoa", .{});
+        exe.root_module.linkFramework("IOKit", .{});
+        exe.root_module.linkFramework("CoreFoundation", .{});
+        exe.root_module.linkFramework("QuartzCore", .{});
+        exe.root_module.linkFramework("Metal", .{});
+
+        exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
+        exe.root_module.linkSystemLibrary("wgpu_native", .{});
+    } else {
+        @panic("Unsupported OS (only Windows and macOS are supported atm)");
+    }
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

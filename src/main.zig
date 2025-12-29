@@ -13,6 +13,8 @@ const texture_handler = @import("texture.zig");
 
 // const width = 1710 * 1;
 // const height = 1107 * 1;
+// const width = 1920;
+// const height = 1080;
 const width = 1280;
 const height = 720;
 
