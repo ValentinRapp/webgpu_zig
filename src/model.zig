@@ -46,9 +46,9 @@ pub const Model = struct {
 
     pub fn getPos(self: *const Model) zm.Vec3f {
         return zm.Vec3f{
-            self.model_proj.projection.data[12],
-            self.model_proj.projection.data[13],
-            self.model_proj.projection.data[14],
+            self.model_proj.projection.data[3],
+            self.model_proj.projection.data[7],
+            self.model_proj.projection.data[11],
         };
     }
 
