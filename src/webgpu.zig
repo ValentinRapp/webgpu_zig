@@ -282,7 +282,7 @@ pub const WebGPU = struct {
                 pub fn lessThan(ctx: @This(), a: model_handler.Model, b: model_handler.Model) bool {
                     const dist_a = zm.vec.distance(a.getPos(), ctx.camPos.*);
                     const dist_b = zm.vec.distance(b.getPos(), ctx.camPos.*);
-                    return dist_a < dist_b;
+                    return dist_a > dist_b;
                 }
             };
             
