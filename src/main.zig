@@ -43,13 +43,19 @@ pub fn main() !void {
     _ = glfw.setCursorPosCallback(window, utils.mouseCallback);
     _ = glfw.setCharCallback(window, utils.character_callback);
 
-    var webgpu = try webgpu_utils.WebGPU.create(allocator, window, width, height);
+    var webgpu = try webgpu_utils.WebGPU.create(
+        allocator,
+        window,
+        width,
+        height,
+        &cam.Position
+    );
     defer webgpu.destroy();
 
-    var texture = try texture_handler.loadTexture("src/assets/textures/dust2albedo.jpg", .color, webgpu.device, webgpu.queue);
+    var texture = try texture_handler.loadTexture("src/assets/textures/obama.png", .color, webgpu.device, webgpu.queue);
     defer texture.release();
-    var lightmapTexture = try texture_handler.loadTexture("src/assets/textures/dust2lightmap.jpg", .color, webgpu.device, webgpu.queue);
-    defer lightmapTexture.release();
+    // var lightmapTexture = try texture_handler.loadTexture("src/assets/textures/dust2lightmap.jpg", .color, webgpu.device, webgpu.queue);
+    // defer lightmapTexture.release();
 
     const sampler_descriptor = wgpu.sampler.SamplerDescriptor{
         .address_mode_u = .clamp_to_edge,
@@ -74,7 +80,7 @@ pub fn main() !void {
     });
     defer shader_module.release();
 
-    var mesh_data = mesh_handler.Mesh.fromFile(allocator, @embedFile("assets/models/dust3baked.obj")) catch |err| {
+    var mesh_data = mesh_handler.Mesh.fromFile(allocator, @embedFile("assets/models/obamid.obj")) catch |err| {
         std.debug.print("Failed to load model: {}\n", .{err});
         return err;
     };
@@ -111,7 +117,7 @@ pub fn main() !void {
         .multisample = .{},
         .fragment = &.{
             .module = shader_module,
-            .entry_point = wgpu.StringView.sliced("fs_static"),
+            .entry_point = wgpu.StringView.sliced("fs_unlit"),
             .constant_count = 0,
             .constants = null,
             .target_count = webgpu.color_targets.len,
@@ -123,30 +129,69 @@ pub fn main() !void {
     var textureView = texture.createView(null);
     defer textureView.release();
 
-    var lightmapTextureView = lightmapTexture.createView(null);
-    defer lightmapTextureView.release();
+    // var lightmapTextureView = lightmapTexture.createView(null);
+    // defer lightmapTextureView.release();
 
-    var texture_views = [_]*wgpu.texture_view.TextureView{textureView, lightmapTextureView};
+    // var texture_views = [_]*wgpu.texture_view.TextureView{textureView, lightmapTextureView};
+    var texture_views = [_]*wgpu.texture_view.TextureView{textureView};
 
-    var model_proj = model_handler.Projection.createBasicModel(webgpu.device);
-    defer model_proj.buffer.release();
+    var projections = try std.ArrayList(model_handler.Projection).initCapacity(allocator, 32);
+    defer projections.deinit(allocator);
 
-    var model = model_handler.Model.create(
-        mesh,
-        .{
-            .{ .projection = proj_data, .buffer = projBuffer },
-            .{ .projection = view_data, .buffer = viewBuffer },
-            model_proj
-        },
-        webgpu.pipelines.get(.basic).?,
-        webgpu.device,
-        sampler,
-        texture_views.len,
-        &texture_views,
-    );
-    defer model.destroy();
+    for (0..32) |i| {
+        var proj = model_handler.Projection.createBasicModel(webgpu.device);
+        proj.projection = zm.Mat4f.translation(0.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0);
+        webgpu.queue.writeBuffer(proj.buffer, f32, @as(*const [16]f32, @ptrCast(&proj.projection)), 0);
+        try projections.append(allocator, proj);
+    }
+    defer for (projections.items) |proj| {
+        proj.buffer.release();
+    };
 
-    try webgpu.setModels(.basic, &.{ model });
+    var models = try std.ArrayList(model_handler.Model).initCapacity(allocator, 32);
+    defer models.deinit(allocator);
+
+    for (0..32) |i| {
+        try models.append(allocator, model_handler.Model.create(
+            mesh,
+            .{
+                .{ .projection = proj_data, .buffer = projBuffer },
+                .{ .projection = view_data, .buffer = viewBuffer },
+                projections.items[i],
+            },
+            webgpu.pipelines.get(.basic).?,
+            webgpu.device,
+            sampler,
+            texture_views.len,
+            &texture_views
+        ));
+    }
+    for (models.items) |model| {
+        try webgpu.appendModel(.basic, model);
+    }
+    defer for (models.items) |*model| {
+        model.destroy();
+    };
+
+    // var model_proj = model_handler.Projection.createBasicModel(webgpu.device);
+    // defer model_proj.buffer.release();
+
+    // var model = model_handler.Model.create(
+    //     mesh,
+    //     .{
+    //         .{ .projection = proj_data, .buffer = projBuffer },
+    //         .{ .projection = view_data, .buffer = viewBuffer },
+    //         projections.items[12],
+    //     },
+    //     webgpu.pipelines.get(.basic).?,
+    //     webgpu.device,
+    //     sampler,
+    //     texture_views.len,
+    //     &texture_views,
+    // );
+    // defer model.destroy();
+
+    // try webgpu.setModels(.basic, &.{ model });
 
     std.debug.print("WebGPU initialized successfully!\n", .{});
 
@@ -163,6 +208,11 @@ pub fn main() !void {
         currentFrame = glfw.getTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
+
+        // const modelPos = model.getPos();
+        // const camPos = cam.Position;
+        // const dist = zm.vec.distance(modelPos, camPos);
+        // std.debug.print("distance to camera: {}\n", .{dist});
 
         // rotation_amount -= 0.03;
         // model.model_proj.projection = zm.Mat4f.rotation(zm.Vec3f{ 0.0, 1.0, 0.0 }, rotation_amount);

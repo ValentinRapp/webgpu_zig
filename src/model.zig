@@ -44,6 +44,14 @@ pub const Model = struct {
         render_pass.drawIndexed(@intCast(self.mesh.mesh.indices.len), 1, 0, 0, 0);
     }
 
+    pub fn getPos(self: *const Model) zm.Vec3f {
+        return zm.Vec3f{
+            self.model_proj.projection.data[12],
+            self.model_proj.projection.data[13],
+            self.model_proj.projection.data[14],
+        };
+    }
+
     pub fn create(
         mesh: mesh_handler.WgpuMesh,
         proj_matrices: [3]Projection,
@@ -75,7 +83,7 @@ pub const Model = struct {
             .mesh = mesh,
             .model_proj = proj_matrices[2],
             .bind_groups = .{ proj_bind_group, textures_bind_group },
-            .pipeline = pipeline,
+            .pipeline = pipeline
         };
     }
 

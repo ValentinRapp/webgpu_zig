@@ -2,6 +2,7 @@ const std = @import("std");
 const wgpu = @import("webgpu");
 const utils = @import("utils/utils.zig");
 const model_handler = @import("model.zig");
+const zm = @import("zm");
 
 pub const Pipelines = enum {
     basic,
@@ -143,7 +144,15 @@ pub const WebGPU = struct {
     pipelines: std.AutoHashMap(Pipelines, *wgpu.render_pipeline.RenderPipeline),
     models: std.AutoHashMap(Pipelines, std.ArrayList(model_handler.Model)),
 
-    pub fn create(allocator: std.mem.Allocator, window: *c_long, width: u32, height: u32) !WebGPU {
+    camPos: *zm.Vec3f,
+
+    pub fn create(
+        allocator: std.mem.Allocator,
+        window: *c_long,
+        width: u32,
+        height: u32,
+        camPos: *zm.Vec3f,
+    ) !WebGPU {
         var webgpu: WebGPU = undefined;
 
         webgpu.allocator = allocator;
@@ -208,6 +217,8 @@ pub const WebGPU = struct {
             .depth_compare = .less,
         };
 
+        webgpu.camPos = camPos;
+
         return webgpu;
     }
 
@@ -264,6 +275,24 @@ pub const WebGPU = struct {
         while (iterator.next()) |entry| {
             frame.render_pass.setPipeline(self.pipelines.get(entry.key_ptr.*).?);
             const models_array = entry.value_ptr.*;
+            
+            const Context = struct {
+                camPos: *const zm.Vec3f,
+                
+                pub fn lessThan(ctx: @This(), a: model_handler.Model, b: model_handler.Model) bool {
+                    const dist_a = zm.vec.distance(a.getPos(), ctx.camPos.*);
+                    const dist_b = zm.vec.distance(b.getPos(), ctx.camPos.*);
+                    return dist_a < dist_b;
+                }
+            };
+            
+            std.mem.sort(
+                model_handler.Model,
+                models_array.items,
+                Context{ .camPos = self.camPos },
+                Context.lessThan
+            );
+            
             for (models_array.items) |*model| {
                 model.draw(frame.render_pass);
             }
