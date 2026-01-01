@@ -43,12 +43,17 @@ pub fn main() !void {
     _ = glfw.setCursorPosCallback(window, utils.mouseCallback);
     _ = glfw.setCharCallback(window, utils.character_callback);
 
+    var proj_data = zm.Mat4f.perspective(
+        std.math.degreesToRadians(70.0),
+        @as(f32, @floatCast(width)) / @as(f32, @floatCast(height)),
+        0.1, 100.0
+    );
+
     var webgpu = try webgpu_utils.WebGPU.create(
         allocator,
         window,
         width,
         height,
-        &cam.Position
     );
     defer webgpu.destroy();
 
@@ -89,7 +94,6 @@ pub fn main() !void {
     var mesh = mesh_handler.WgpuMesh.create(mesh_data, webgpu.device);
     defer mesh.destroy();
 
-    var proj_data = zm.Mat4f.perspective(70.0 * std.math.pi / 180.0, @as(f32, @floatCast(width)) / @as(f32, @floatCast(height)), 0.1, 100.0);
     const projBuffer = webgpu_utils.createBuffer(webgpu.device, f32, @as(*const [16]f32, @ptrCast(&proj_data)), .{ .uniform = true, .copy_dst = true });
     defer projBuffer.release();
 
@@ -152,19 +156,11 @@ pub fn main() !void {
     defer models.deinit(allocator);
 
     for (0..32) |i| {
-        try models.append(allocator, model_handler.Model.create(
-            mesh,
-            .{
-                .{ .projection = proj_data, .buffer = projBuffer },
-                .{ .projection = view_data, .buffer = viewBuffer },
-                projections.items[i],
-            },
-            webgpu.pipelines.get(.basic).?,
-            webgpu.device,
-            sampler,
-            texture_views.len,
-            &texture_views
-        ));
+        try models.append(allocator, try model_handler.Model.create(mesh, .{
+            .{ .projection = proj_data, .buffer = projBuffer },
+            .{ .projection = view_data, .buffer = viewBuffer },
+            projections.items[i],
+        }, webgpu.pipelines.get(.basic).?, webgpu.device, sampler, texture_views.len, &texture_views));
     }
     for (models.items) |model| {
         try webgpu.appendModel(.basic, model);
@@ -209,11 +205,6 @@ pub fn main() !void {
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        // const modelPos = model.getPos();
-        // const camPos = cam.Position;
-        // const dist = zm.vec.distance(modelPos, camPos);
-        // std.debug.print("distance to camera: {}\n", .{dist});
-
         // rotation_amount -= 0.03;
         // model.model_proj.projection = zm.Mat4f.rotation(zm.Vec3f{ 0.0, 1.0, 0.0 }, rotation_amount);
         // model2.model_proj.projection = zm.Mat4f.rotation(zm.Vec3f{ 0.0, 1.0, 0.0 }, std.math.pi);
@@ -226,7 +217,10 @@ pub fn main() !void {
         // webgpu.queue.writeBuffer(model.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model.model_proj.projection)), 0);
         // webgpu.queue.writeBuffer(model2.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model2.model_proj.projection)), 0);
 
-        webgpu.draw() catch |err| {
+        webgpu.draw(
+            cam.Position,
+            zm.Mat4f.multiply(proj_data, view_data))
+        catch |err| {
             std.debug.print("Failed to draw frame: {}\n", .{err});
             continue;
         };

@@ -3,6 +3,8 @@ const wgpu = @import("webgpu");
 const utils = @import("utils/utils.zig");
 const model_handler = @import("model.zig");
 const zm = @import("zm");
+const camera_handler = @import("camera.zig");
+const frustum_handler = @import("frustum.zig");
 
 pub const Pipelines = enum {
     basic,
@@ -124,6 +126,12 @@ const RenderFrame = struct {
     }
 };
 
+pub fn isInFrustum(model: *const model_handler.Model, viewProj: zm.Mat4f) bool {
+    // const viewProj = zm.Mat4f.multiply(projectionMatrix, viewMatrix);
+    const frustum = frustum_handler.Frustum.fromViewProjection(viewProj);
+    return frustum.containsAABB(model.bounds);
+}
+
 pub const WebGPU = struct {
     allocator: std.mem.Allocator,
 
@@ -144,14 +152,14 @@ pub const WebGPU = struct {
     pipelines: std.AutoHashMap(Pipelines, *wgpu.render_pipeline.RenderPipeline),
     models: std.AutoHashMap(Pipelines, std.ArrayList(model_handler.Model)),
 
-    camPos: *zm.Vec3f,
+    // camera: *camera_handler.Camera,
+    // projectionMatrix: *zm.Mat4f,
 
     pub fn create(
         allocator: std.mem.Allocator,
         window: *c_long,
         width: u32,
-        height: u32,
-        camPos: *zm.Vec3f,
+        height: u32
     ) !WebGPU {
         var webgpu: WebGPU = undefined;
 
@@ -217,7 +225,9 @@ pub const WebGPU = struct {
             .depth_compare = .less,
         };
 
-        webgpu.camPos = camPos;
+        // webgpu.camPos = camPos;
+        // webgpu.camera = camera;
+        // webgpu.projectionMatrix = projectionMatrix;
 
         return webgpu;
     }
@@ -268,34 +278,40 @@ pub const WebGPU = struct {
         };
     }
 
-    pub fn draw(self: *WebGPU) !void {
+    pub fn draw(self: *WebGPU, camPos: zm.Vec3f, viewProj: zm.Mat4f) !void {
         var frame = try self.beginFrame();
 
         var iterator = self.models.iterator();
         while (iterator.next()) |entry| {
             frame.render_pass.setPipeline(self.pipelines.get(entry.key_ptr.*).?);
             const models_array = entry.value_ptr.*;
-            
+
             const Context = struct {
                 camPos: *const zm.Vec3f,
-                
+
                 pub fn lessThan(ctx: @This(), a: model_handler.Model, b: model_handler.Model) bool {
                     const dist_a = zm.vec.distance(a.getPos(), ctx.camPos.*);
                     const dist_b = zm.vec.distance(b.getPos(), ctx.camPos.*);
                     return dist_a < dist_b;
                 }
             };
-            
+
             std.mem.sort(
                 model_handler.Model,
                 models_array.items,
-                Context{ .camPos = self.camPos },
+                Context{ .camPos = &camPos },
                 Context.lessThan
             );
-            
+
             for (models_array.items) |*model| {
+                if (!isInFrustum(model, viewProj)) {
+                    // std.debug.print("0 ", .{});
+                    continue;
+                }
+                // std.debug.print("1 ", .{});
                 model.draw(frame.render_pass);
             }
+            // std.debug.print("\n", .{});
         }
 
         frame.render_pass.end();
