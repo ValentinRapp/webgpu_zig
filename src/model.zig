@@ -94,11 +94,6 @@ pub const Model = struct {
     bounds: zm.AABBf,
 
     pub fn draw(self: *Model, render_pass: *wgpu.render_pass_encoder.RenderPassEncoder) void {
-        // render_pass.setPipeline(self.pipeline);
-        // render_pass.setBindGroup(0, self.bind_groups[0], null);
-        for (self.bind_groups, 0..) |bind_group, i| {
-            render_pass.setBindGroup(@intCast(i), bind_group, null);
-        }
         render_pass.setVertexBuffer(0, self.mesh.vertex_buffer, 0, self.mesh.vertex_buffer.size());
         render_pass.setIndexBuffer(self.mesh.index_buffer, .uint16, 0, self.mesh.index_buffer.size());
         render_pass.drawIndexed(@intCast(self.mesh.mesh.indices.len), 1, 0, 0, 0);
@@ -116,29 +111,9 @@ pub const Model = struct {
         mesh: mesh_handler.WgpuMesh,
         proj_matrices: [3]Projection,
         pipeline: *wgpu.render_pipeline.RenderPipeline,
-        device: *wgpu.device.Device,
-        sampler: *wgpu.sampler.Sampler,
-        comptime num_textures: usize,
-        texture_views: *const [num_textures]*wgpu.texture_view.TextureView,
+        proj_bind_group: *wgpu.bind_group.BindGroup,
+        textures_bind_group: *wgpu.bind_group.BindGroup,
     ) !Model {
-        const proj_bind_group = webgpu_utils.createBindGroup(
-            pipeline,
-            device,
-            0,
-            3,
-            .{ proj_matrices[0].buffer, proj_matrices[1].buffer, proj_matrices[2].buffer },
-            .{ zm.Mat4f, zm.Mat4f, zm.Mat4f },
-        );
-
-        const textures_bind_group = texture_handler.createTextureBindGroup(
-            num_textures,
-            pipeline,
-            device,
-            1,
-            sampler,
-            texture_views,
-        );
-
         var bounds = try computeAABB(&mesh.mesh);
         updateBounds(&bounds, proj_matrices[2].projection);
 

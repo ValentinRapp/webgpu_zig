@@ -137,7 +137,7 @@ pub fn main() !void {
     // defer lightmapTextureView.release();
 
     // var texture_views = [_]*wgpu.texture_view.TextureView{textureView, lightmapTextureView};
-    var texture_views = [_]*wgpu.texture_view.TextureView{textureView};
+    const texture_views = [_]*wgpu.texture_view.TextureView{textureView};
 
     var projections = try std.ArrayList(model_handler.Projection).initCapacity(allocator, 32);
     defer projections.deinit(allocator);
@@ -155,12 +155,36 @@ pub fn main() !void {
     var models = try std.ArrayList(model_handler.Model).initCapacity(allocator, 32);
     defer models.deinit(allocator);
 
+    const textures_bind_group = texture_handler.createTextureBindGroup(
+        texture_views.len,
+        webgpu.pipelines.get(.basic).?,
+        webgpu.device,
+        1,
+        sampler,
+        &texture_views,
+    );
+
     for (0..32) |i| {
-        try models.append(allocator, try model_handler.Model.create(mesh, .{
-            .{ .projection = proj_data, .buffer = projBuffer },
-            .{ .projection = view_data, .buffer = viewBuffer },
-            projections.items[i],
-        }, webgpu.pipelines.get(.basic).?, webgpu.device, sampler, texture_views.len, &texture_views));
+        const proj_bind_group = webgpu_utils.createBindGroup(
+            webgpu.pipelines.get(.basic).?,
+            webgpu.device,
+            0,
+            3,
+            .{ projBuffer, viewBuffer, projections.items[i].buffer },
+            .{ zm.Mat4f, zm.Mat4f, zm.Mat4f },
+        );
+
+        try models.append(allocator, try model_handler.Model.create(
+            mesh,
+            .{
+                .{ .projection = proj_data, .buffer = projBuffer },
+                .{ .projection = view_data, .buffer = viewBuffer },
+                projections.items[i],
+            },
+            webgpu.pipelines.get(.basic).?,
+            proj_bind_group,
+            textures_bind_group,
+        ));
     }
     for (models.items) |model| {
         try webgpu.appendModel(.basic, model);

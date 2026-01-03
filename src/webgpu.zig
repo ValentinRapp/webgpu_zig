@@ -303,11 +303,28 @@ pub const WebGPU = struct {
                 Context.lessThan
             );
 
+            var last_bind_groups = [2]*wgpu.bind_group.BindGroup{
+                models_array.items[0].bind_groups[0],
+                models_array.items[0].bind_groups[1],
+            };
+            frame.render_pass.setBindGroup(0, last_bind_groups[0], null);
+            frame.render_pass.setBindGroup(1, last_bind_groups[1], null);
+
             for (models_array.items) |*model| {
                 if (!isInFrustum(model, viewProj)) {
                     // std.debug.print("0 ", .{});
                     continue;
                 }
+
+                if (model.bind_groups[0] != last_bind_groups[0]) {
+                    frame.render_pass.setBindGroup(0, model.bind_groups[0], null);
+                    last_bind_groups[0] = model.bind_groups[0];
+                }
+                if (model.bind_groups[1] != last_bind_groups[1]) {
+                    frame.render_pass.setBindGroup(1, model.bind_groups[1], null);
+                    last_bind_groups[1] = model.bind_groups[1];
+                }
+
                 // std.debug.print("1 ", .{});
                 model.draw(frame.render_pass);
             }
