@@ -15,6 +15,30 @@ pub fn getTextureFormat(texture_type: TextureType) wgpu.texture.TextureFormat {
     };
 }
 
+pub fn texViewsFromPaths(
+    comptime len: usize,
+    paths: [len][:0]const u8,
+    texture_types: [len]TextureType,
+    device: *wgpu.device.Device,
+    queue: *wgpu.queue.Queue,
+) ![len]*wgpu.texture_view.TextureView {
+    var texture_views: [len]*wgpu.texture_view.TextureView = undefined;
+
+    inline for (paths, 0..) |path, i| {
+        var texture = try loadTexture(
+            path,
+            texture_types[i],
+            device,
+            queue
+        );
+        defer texture.release();
+
+        texture_views[i] = texture.createView(null);
+    }
+
+    return texture_views;
+}
+
 pub fn loadTexture(
     path: [:0]const u8,
     texture_type: TextureType,

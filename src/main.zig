@@ -57,8 +57,6 @@ pub fn main() !void {
     );
     defer webgpu.destroy();
 
-    var texture = try texture_handler.loadTexture("src/assets/textures/obama.png", .color, webgpu.device, webgpu.queue);
-    defer texture.release();
     // var lightmapTexture = try texture_handler.loadTexture("src/assets/textures/dust2lightmap.jpg", .color, webgpu.device, webgpu.queue);
     // defer lightmapTexture.release();
 
@@ -130,14 +128,13 @@ pub fn main() !void {
     }));
     defer webgpu.pipelines.get(.basic).?.release();
 
-    var textureView = texture.createView(null);
-    defer textureView.release();
-
-    // var lightmapTextureView = lightmapTexture.createView(null);
-    // defer lightmapTextureView.release();
-
-    // var texture_views = [_]*wgpu.texture_view.TextureView{textureView, lightmapTextureView};
-    const texture_views = [_]*wgpu.texture_view.TextureView{textureView};
+    const texture_views = try texture_handler.texViewsFromPaths(
+        1,
+        .{"src/assets/textures/obama.png"},
+        .{.color},
+        webgpu.device,
+        webgpu.queue
+    );
 
     var projections = try std.ArrayList(model_handler.Projection).initCapacity(allocator, 32);
     defer projections.deinit(allocator);
@@ -165,15 +162,6 @@ pub fn main() !void {
     );
 
     for (0..32) |i| {
-        const proj_bind_group = webgpu_utils.createBindGroup(
-            webgpu.pipelines.get(.basic).?,
-            webgpu.device,
-            0,
-            3,
-            .{ projBuffer, viewBuffer, projections.items[i].buffer },
-            .{ zm.Mat4f, zm.Mat4f, zm.Mat4f },
-        );
-
         try models.append(allocator, try model_handler.Model.create(
             mesh,
             .{
@@ -182,7 +170,12 @@ pub fn main() !void {
                 projections.items[i],
             },
             webgpu.pipelines.get(.basic).?,
-            proj_bind_group,
+            model_handler.createProjectionsBindGroup(
+                webgpu.pipelines.get(.basic).?,
+                webgpu.device,
+                0,
+                .{ projBuffer, viewBuffer, projections.items[i].buffer },
+            ),
             textures_bind_group,
         ));
     }

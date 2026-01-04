@@ -24,6 +24,22 @@ pub const Projection = struct {
     }
 };
 
+pub fn createProjectionsBindGroup(
+    pipeline: *wgpu.render_pipeline.RenderPipeline,
+    device: *wgpu.device.Device,
+    comptime index: usize,
+    matrices: [3]*wgpu.buffer.Buffer,
+) *wgpu.bind_group.BindGroup {
+    return webgpu_utils.createBindGroup(
+        pipeline,
+        device,
+        index,
+        3,
+        matrices,
+        .{ zm.Mat4f, zm.Mat4f, zm.Mat4f },
+    );
+}
+
 fn computeAABB(mesh: *const mesh_handler.Mesh) !zm.AABBf {
     const vertices = mesh.vertices;
     if (vertices.len < 3) return error.InvalidMesh;
@@ -105,6 +121,28 @@ pub const Model = struct {
             self.model_proj.projection.data[7],
             self.model_proj.projection.data[11],
         };
+    }
+
+    pub fn setModelMatrix(self: *Model, queue: *wgpu.queue.Queue, modelMatrix: zm.Mat4f) void {
+        self.model_proj.projection = modelMatrix;
+        queue.writeBuffer(
+            self.model_proj.buffer,
+            f32,
+            @as(*const [16]f32, @ptrCast(&self.model_proj.projection)),
+            0,
+        );
+        updateBounds(&self.bounds, modelMatrix);
+    }
+
+    pub fn multiplyModelMatrix(self: *Model, queue: *wgpu.queue.Queue, modelMatrix: zm.Mat4f) void {
+        self.model_proj.projection = zm.Mat4f.multiply(modelMatrix, self.model_proj.projection);
+        queue.writeBuffer(
+            self.model_proj.buffer,
+            f32,
+            @as(*const [16]f32, @ptrCast(&self.model_proj.projection)),
+            0,
+        );
+        updateBounds(&self.bounds, self.model_proj.projection);
     }
 
     pub fn create(
