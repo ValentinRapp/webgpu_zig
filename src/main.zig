@@ -15,8 +15,12 @@ const texture_handler = @import("texture.zig");
 // const height = 1107 * 1;
 // const width = 1920;
 // const height = 1080;
-const width = 1280;
-const height = 720;
+// const width = 1280;
+// const height = 720;
+
+pub var width: u32 = 1280;
+pub var height: u32 = 720;
+pub var framebuffer_resized = false;
 
 pub var cam = camera.createCamera(.{ 0.0, 0.5, 3.0 }, -std.math.pi / 2.0, 0.0);
 
@@ -34,26 +38,27 @@ pub fn main() !void {
     try glfw.init();
     defer glfw.terminate();
 
-    // Create window (no OpenGL context for WebGPU)
+    // Create window
     glfw.windowHint(glfw.ClientAPI, glfw.NoAPI);
-    const window = try glfw.createWindow(width, height, "WebGPU", null, null);
+    const window = try glfw.createWindow(@intCast(width), @intCast(height), "WebGPU", null, null);
     defer glfw.destroyWindow(window);
 
+    _ = glfw.setFramebufferSizeCallback(window, utils.framebufferResizeCallback);
     glfw.setInputMode(window, glfw.Cursor, glfw.CursorDisabled);
     _ = glfw.setCursorPosCallback(window, utils.mouseCallback);
     _ = glfw.setCharCallback(window, utils.character_callback);
-
-    var proj_data = zm.Mat4f.perspective(
-        std.math.degreesToRadians(70.0),
-        @as(f32, @floatCast(width)) / @as(f32, @floatCast(height)),
-        0.1, 100.0
-    );
 
     var webgpu = try webgpu_utils.WebGPU.create(
         allocator,
         window,
         width,
         height,
+        zm.Mat4f.perspective(
+            std.math.degreesToRadians(70.0),
+            @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)),
+            0.1, 100.0
+        ),
+        cam.getViewMatrix(),
     );
     defer webgpu.destroy();
 
@@ -92,13 +97,6 @@ pub fn main() !void {
     var mesh = mesh_handler.WgpuMesh.create(mesh_data, webgpu.device);
     defer mesh.destroy();
 
-    const projBuffer = webgpu_utils.createBuffer(webgpu.device, f32, @as(*const [16]f32, @ptrCast(&proj_data)), .{ .uniform = true, .copy_dst = true });
-    defer projBuffer.release();
-
-    var view_data = cam.getViewMatrix();
-    const viewBuffer = webgpu_utils.createBuffer(webgpu.device, f32, @as(*const [16]f32, @ptrCast(&view_data)), .{ .uniform = true, .copy_dst = true });
-    defer viewBuffer.release();
-
     try webgpu.pipelines.put(.basic, webgpu.device.createRenderPipeline(&.{
         .label = wgpu.StringView.sliced("pipeline"),
         .layout = null,
@@ -136,13 +134,13 @@ pub fn main() !void {
         webgpu.queue
     );
 
-    var projections = try std.ArrayList(model_handler.Projection).initCapacity(allocator, 32);
+    var projections = try std.ArrayList(webgpu_utils.Projection).initCapacity(allocator, 32);
     defer projections.deinit(allocator);
 
     for (0..32) |i| {
-        var proj = model_handler.Projection.createBasicModel(webgpu.device);
-        proj.projection = zm.Mat4f.translation(0.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0);
-        webgpu.queue.writeBuffer(proj.buffer, f32, @as(*const [16]f32, @ptrCast(&proj.projection)), 0);
+        var proj = webgpu_utils.Projection.createBasicModel(webgpu.device);
+        proj.matrix = zm.Mat4f.translation(0.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0);
+        webgpu.queue.writeBuffer(proj.buffer, f32, @as(*const [16]f32, @ptrCast(&proj.matrix)), 0);
         try projections.append(allocator, proj);
     }
     defer for (projections.items) |proj| {
@@ -165,8 +163,8 @@ pub fn main() !void {
         try models.append(allocator, try model_handler.Model.create(
             mesh,
             .{
-                .{ .projection = proj_data, .buffer = projBuffer },
-                .{ .projection = view_data, .buffer = viewBuffer },
+                webgpu.projection,
+                webgpu.view,
                 projections.items[i],
             },
             webgpu.pipelines.get(.basic).?,
@@ -174,7 +172,7 @@ pub fn main() !void {
                 webgpu.pipelines.get(.basic).?,
                 webgpu.device,
                 0,
-                .{ projBuffer, viewBuffer, projections.items[i].buffer },
+                .{ webgpu.projection.buffer, webgpu.view.buffer, projections.items[i].buffer },
             ),
             textures_bind_group,
         ));
@@ -218,6 +216,11 @@ pub fn main() !void {
 
         utils.processInput(window, deltaTime);
 
+        if (framebuffer_resized) {
+            try webgpu.resize(width, height);
+            framebuffer_resized = false;
+        }
+
         currentFrame = glfw.getTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
@@ -229,15 +232,11 @@ pub fn main() !void {
         // model.model_proj.projection.data[7] = -0.1;
 
         // Update uniform buffers
-        view_data = cam.getViewMatrix();
-        webgpu.queue.writeBuffer(viewBuffer, f32, @as(*const [16]f32, @ptrCast(&view_data)), 0);
+        webgpu.updateView(cam.getViewMatrix());
         // webgpu.queue.writeBuffer(model.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model.model_proj.projection)), 0);
         // webgpu.queue.writeBuffer(model2.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model2.model_proj.projection)), 0);
 
-        webgpu.draw(
-            cam.Position,
-            zm.Mat4f.multiply(proj_data, view_data))
-        catch |err| {
+        webgpu.draw(cam.Position) catch |err| {
             std.debug.print("Failed to draw frame: {}\n", .{err});
             continue;
         };

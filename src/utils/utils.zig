@@ -184,3 +184,10 @@ pub fn mouseCallback(window: ?*glfw.Window, xpos: f64, ypos: f64) callconv(.c) v
 
     main.cam.processMouseMovement(xoffset, yoffset);
 }
+
+pub fn framebufferResizeCallback(window: ?*glfw.Window, w: i32, h: i32) callconv(.c) void {
+    _ = window;
+    main.width = @intCast(w);
+    main.height = @intCast(h);
+    main.framebuffer_resized = true;
+}

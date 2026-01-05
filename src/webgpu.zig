@@ -33,6 +33,25 @@ pub const default_vertex_buffer_layout = [_]wgpu.render_pipeline.VertexBufferLay
     },
 }};
 
+pub const Projection = struct {
+    matrix: zm.Mat4f = undefined,
+    buffer: *wgpu.buffer.Buffer = undefined,
+
+    pub fn createBasicModel(device: *wgpu.device.Device) Projection {
+        var proj = Projection{
+            .matrix = zm.Mat4f.identity(),
+            .buffer = undefined,
+        };
+        proj.buffer = createBuffer(
+            device,
+            f32,
+            @as(*const [16]f32, @ptrCast(&proj.matrix)),
+            .{ .uniform = true, .copy_dst = true },
+        );
+        return proj;
+    }
+};
+
 pub fn createBuffer(device: *wgpu.device.Device, comptime T: type, data: []const T, usage: wgpu.buffer.BufferUsage) *wgpu.buffer.Buffer {
     const data_size = @sizeOf(T) * data.len;
     // Align to COPY_BUFFER_ALIGNMENT (4 bytes)
@@ -152,14 +171,16 @@ pub const WebGPU = struct {
     pipelines: std.AutoHashMap(Pipelines, *wgpu.render_pipeline.RenderPipeline),
     models: std.AutoHashMap(Pipelines, std.ArrayList(model_handler.Model)),
 
-    // camera: *camera_handler.Camera,
-    // projectionMatrix: *zm.Mat4f,
+    projection: Projection,
+    view: Projection,
 
     pub fn create(
         allocator: std.mem.Allocator,
         window: *c_long,
         width: u32,
-        height: u32
+        height: u32,
+        projection: zm.Mat4f,
+        view: zm.Mat4f,
     ) !WebGPU {
         var webgpu: WebGPU = undefined;
 
@@ -171,7 +192,11 @@ pub const WebGPU = struct {
 
         webgpu.instance = wgpu.instance.Instance.create(null);
         webgpu.surface = utils.createSurface(webgpu.instance, window);
-        webgpu.adapter = try webgpu.instance.awaitAdapter(&.{ .compatible_surface = webgpu.surface, .power_preference = .high_performance, .feature_level = .compatibility });
+        webgpu.adapter = try webgpu.instance.awaitAdapter(&.{
+            .compatible_surface = webgpu.surface,
+            .power_preference = .high_performance,
+            .feature_level = .compatibility
+        });
         webgpu.device = try webgpu.adapter.awaitDevice(null);
         webgpu.queue = webgpu.device.getQueue();
 
@@ -225,11 +250,79 @@ pub const WebGPU = struct {
             .depth_compare = .less,
         };
 
-        // webgpu.camPos = camPos;
-        // webgpu.camera = camera;
-        // webgpu.projectionMatrix = projectionMatrix;
+        webgpu.projection.matrix = projection;
+        webgpu.projection.buffer = createBuffer(
+            webgpu.device,
+            f32,
+            @as(*const [16]f32, @ptrCast(&webgpu.projection.matrix)),
+            .{ .uniform = true, .copy_dst = true },
+        );
+        webgpu.view.matrix = view;
+        webgpu.view.buffer = createBuffer(
+            webgpu.device,
+            f32,
+            @as(*const [16]f32, @ptrCast(&webgpu.view.matrix)),
+            .{ .uniform = true, .copy_dst = true },
+        );
 
         return webgpu;
+    }
+
+    pub fn updateView(self: *WebGPU, viewMatrix: zm.Mat4f) void {
+        self.view.matrix = viewMatrix;
+        self.queue.writeBuffer(
+            self.view.buffer,
+            f32,
+            @as(*const [16]f32, @ptrCast(&self.view.matrix)),
+            0
+        );
+    }
+
+    pub fn resize(self: *WebGPU, width: u32, height: u32) !void {
+        if (width == 0 or height == 0) return;
+
+        self.depth_texture.release();
+        self.depth_view.release();
+        
+        self.depth_texture = self.device.createTexture(&.{
+            .usage = .{ .render_attachment = true },
+            .dimension = .@"2d",
+            .size = .{
+                .width = width,
+                .height = height,
+                .depth_or_array_layers = 1,
+            },
+            .format = .depth24_plus,
+            .mip_level_count = 1,
+            .sample_count = 1,
+            .view_format_count = 0,
+            .view_formats = null,
+        });
+        self.depth_view = self.depth_texture.createView(null);
+        
+        self.surface.configure(&.{
+            .device = self.device,
+            .format = self.surface_format,
+            .usage = .{ .render_attachment = true },
+            .width = width,
+            .height = height,
+            .view_format_count = 0,
+            .view_formats = null,
+            .alpha_mode = .auto,
+            .present_mode = .fifo,
+        });
+
+        self.projection.matrix = zm.Mat4f.perspective(
+            std.math.degreesToRadians(70.0),
+            @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)),
+            0.1, 100.0
+        );
+        self.queue.writeBuffer(
+            self.projection.buffer,
+            f32,
+            @as(*const [16]f32, @ptrCast(&self.projection.matrix)),
+            0
+        );    
     }
 
     pub fn beginFrame(self: *WebGPU) !RenderFrame {
@@ -278,7 +371,8 @@ pub const WebGPU = struct {
         };
     }
 
-    pub fn draw(self: *WebGPU, camPos: zm.Vec3f, viewProj: zm.Mat4f) !void {
+    pub fn draw(self: *WebGPU, camPos: zm.Vec3f) !void {
+        const viewProj = zm.Mat4f.multiply(self.projection.matrix, self.view.matrix);
         var frame = try self.beginFrame();
 
         var iterator = self.models.iterator();
@@ -361,6 +455,8 @@ pub const WebGPU = struct {
         self.depth_texture.release();
         self.depth_view.release();
         self.pipelines.deinit();
+        self.projection.buffer.release();
+        self.view.buffer.release();
 
         var iterator = self.models.iterator();
         while (iterator.next()) |entry| {

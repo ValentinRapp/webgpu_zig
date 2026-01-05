@@ -5,25 +5,6 @@ const webgpu_utils = @import("webgpu.zig");
 const texture_handler = @import("texture.zig");
 const zm = @import("zm");
 
-pub const Projection = struct {
-    projection: zm.Mat4f,
-    buffer: *wgpu.buffer.Buffer,
-
-    pub fn createBasicModel(device: *wgpu.device.Device) Projection {
-        var proj = Projection{
-            .projection = zm.Mat4f.identity(),
-            .buffer = undefined,
-        };
-        proj.buffer = webgpu_utils.createBuffer(
-            device,
-            f32,
-            @as(*const [16]f32, @ptrCast(&proj.projection)),
-            .{ .uniform = true, .copy_dst = true },
-        );
-        return proj;
-    }
-};
-
 pub fn createProjectionsBindGroup(
     pipeline: *wgpu.render_pipeline.RenderPipeline,
     device: *wgpu.device.Device,
@@ -101,7 +82,7 @@ fn updateBounds(bounds: *zm.AABBf, modelProj: zm.Mat4f) void {
 pub const Model = struct {
     mesh: mesh_handler.WgpuMesh,
 
-    model_proj: Projection,
+    model_proj: webgpu_utils.Projection,
 
     bind_groups: [2]*wgpu.bind_group.BindGroup,
 
@@ -117,18 +98,18 @@ pub const Model = struct {
 
     pub fn getPos(self: *const Model) zm.Vec3f {
         return zm.Vec3f{
-            self.model_proj.projection.data[3],
-            self.model_proj.projection.data[7],
-            self.model_proj.projection.data[11],
+            self.model_proj.matrix.data[3],
+            self.model_proj.matrix.data[7],
+            self.model_proj.matrix.data[11],
         };
     }
 
     pub fn setModelMatrix(self: *Model, queue: *wgpu.queue.Queue, modelMatrix: zm.Mat4f) void {
-        self.model_proj.projection = modelMatrix;
+        self.model_proj.matrix = modelMatrix;
         queue.writeBuffer(
             self.model_proj.buffer,
             f32,
-            @as(*const [16]f32, @ptrCast(&self.model_proj.projection)),
+            @as(*const [16]f32, @ptrCast(&self.model_proj.matrix)),
             0,
         );
         updateBounds(&self.bounds, modelMatrix);
@@ -147,13 +128,13 @@ pub const Model = struct {
 
     pub fn create(
         mesh: mesh_handler.WgpuMesh,
-        proj_matrices: [3]Projection,
+        proj_matrices: [3]webgpu_utils.Projection,
         pipeline: *wgpu.render_pipeline.RenderPipeline,
         proj_bind_group: *wgpu.bind_group.BindGroup,
         textures_bind_group: *wgpu.bind_group.BindGroup,
     ) !Model {
         var bounds = try computeAABB(&mesh.mesh);
-        updateBounds(&bounds, proj_matrices[2].projection);
+        updateBounds(&bounds, proj_matrices[2].matrix);
 
         return Model{
             .mesh = mesh,
