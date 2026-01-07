@@ -48,23 +48,6 @@ pub fn main() !void {
     _ = glfw.setCursorPosCallback(window, utils.mouseCallback);
     _ = glfw.setCharCallback(window, utils.character_callback);
 
-    var webgpu = try webgpu_utils.WebGPU.create(
-        allocator,
-        window,
-        width,
-        height,
-        zm.Mat4f.perspective(
-            std.math.degreesToRadians(70.0),
-            @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)),
-            0.1, 100.0
-        ),
-        cam.getViewMatrix(),
-    );
-    defer webgpu.destroy();
-
-    // var lightmapTexture = try texture_handler.loadTexture("src/assets/textures/dust2lightmap.jpg", .color, webgpu.device, webgpu.queue);
-    // defer lightmapTexture.release();
-
     const sampler_descriptor = wgpu.sampler.SamplerDescriptor{
         .address_mode_u = .clamp_to_edge,
         .address_mode_v = .clamp_to_edge,
@@ -73,20 +56,23 @@ pub fn main() !void {
         .min_filter = .linear,
         .mipmap_filter = .linear,
     };
-    var sampler = webgpu.device.createSampler(&sampler_descriptor);
-    defer sampler.release();
+    // var sampler = webgpu.device.createSampler(&sampler_descriptor);
+    // defer sampler.release();
 
-    // Create shader module
-    const shader_code = @embedFile("assets/shaders/shader.wgsl");
-    var wgsl_source = wgpu.shader.ShaderSourceWGSL{
-        .chain = .{ .type = .shader_source_wgsl },
-        .code = wgpu.StringView.sliced(shader_code),
-    };
-    const shader_module = webgpu.device.createShaderModule(&.{
-        .next = @ptrCast(&wgsl_source),
-        .label = wgpu.StringView.sliced("shader"),
-    });
-    defer shader_module.release();
+    var webgpu = try webgpu_utils.WebGPU.create(
+        allocator,
+        window,
+        width,
+        height,
+        sampler_descriptor,
+        null,
+        zm.Mat4f.perspective(std.math.degreesToRadians(70.0), @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)), 0.1, 100.0),
+        cam.getViewMatrix(),
+    );
+    defer webgpu.destroy();
+
+    // var lightmapTexture = try texture_handler.loadTexture("src/assets/textures/dust2lightmap.jpg", .color, webgpu.device, webgpu.queue);
+    // defer lightmapTexture.release();
 
     var mesh_data = mesh_handler.Mesh.fromFile(allocator, @embedFile("assets/models/obamid.obj")) catch |err| {
         std.debug.print("Failed to load model: {}\n", .{err});
@@ -98,10 +84,10 @@ pub fn main() !void {
     defer mesh.destroy();
 
     try webgpu.pipelines.put(.basic, webgpu.device.createRenderPipeline(&.{
-        .label = wgpu.StringView.sliced("pipeline"),
+        .label = wgpu.StringView.sliced("basic_pipeline"),
         .layout = null,
         .vertex = .{
-            .module = shader_module,
+            .module = webgpu.shader_module,
             .entry_point = wgpu.StringView.sliced("vs_main"),
             .constant_count = 0,
             .constants = null,
@@ -113,10 +99,14 @@ pub fn main() !void {
             .front_face = .counter_clockwise,
             .cull_mode = .back,
         },
-        .depth_stencil = &webgpu.depth_stencil_state,
+        .depth_stencil = &.{
+            .format = .depth24_plus,
+            .depth_write_enabled = .true,
+            .depth_compare = .less,
+        },
         .multisample = .{},
         .fragment = &.{
-            .module = shader_module,
+            .module = webgpu.shader_module,
             .entry_point = wgpu.StringView.sliced("fs_unlit"),
             .constant_count = 0,
             .constants = null,
@@ -124,15 +114,11 @@ pub fn main() !void {
             .targets = &webgpu.color_targets,
         },
     }));
-    defer webgpu.pipelines.get(.basic).?.release();
 
-    const texture_views = try texture_handler.texViewsFromPaths(
-        1,
-        .{"src/assets/textures/obama.png"},
-        .{.color},
-        webgpu.device,
-        webgpu.queue
-    );
+    const texture_views = try texture_handler.texViewsFromPaths(1, .{"src/assets/textures/obama.png"}, .{.color}, webgpu.device, webgpu.queue);
+    defer for (texture_views) |view| {
+        view.release();
+    };
 
     var projections = try std.ArrayList(webgpu_utils.Projection).initCapacity(allocator, 32);
     defer projections.deinit(allocator);
@@ -155,7 +141,7 @@ pub fn main() !void {
         webgpu.pipelines.get(.basic).?,
         webgpu.device,
         1,
-        sampler,
+        webgpu.sampler,
         &texture_views,
     );
 
@@ -180,9 +166,6 @@ pub fn main() !void {
     for (models.items) |model| {
         try webgpu.appendModel(.basic, model);
     }
-    defer for (models.items) |*model| {
-        model.destroy();
-    };
 
     // var model_proj = model_handler.Projection.createBasicModel(webgpu.device);
     // defer model_proj.buffer.release();
