@@ -312,11 +312,11 @@ pub const WebGPU = struct {
             .present_mode = .fifo,
         });
 
-        self.projection.matrix = zm.Mat4f.perspective(
-            std.math.degreesToRadians(70.0),
-            @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)),
-            0.1, 100.0
-        );
+        // Update projection matrix
+        const fov = 2.0 * std.math.atan(1.0 / self.projection.matrix.data[5]);
+        const aspect_ratio = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
+        self.projection.matrix.data[0] = 1.0 / (aspect_ratio * @tan(fov / 2.0));
+
         self.queue.writeBuffer(
             self.projection.buffer,
             f32,
