@@ -5,7 +5,7 @@ const wgpu = @import("webgpu");
 const utils = @import("utils/utils.zig");
 const camera = @import("camera.zig");
 const zm = @import("zm");
-const webgpu_utils = @import("webgpu.zig");
+const renderer_handler = @import("renderer.zig");
 const mesh_handler = @import("mesh.zig");
 const model_handler = @import("model.zig");
 const zstbi = @import("zstbi");
@@ -56,22 +56,26 @@ pub fn main() !void {
         .min_filter = .linear,
         .mipmap_filter = .linear,
     };
-    // var sampler = webgpu.device.createSampler(&sampler_descriptor);
+    // var sampler = renderer.device.createSampler(&sampler_descriptor);
     // defer sampler.release();
 
-    var webgpu = try webgpu_utils.WebGPU.create(
+    var renderer = try renderer_handler.Renderer.create(
         allocator,
         window,
         width,
         height,
         sampler_descriptor,
-        null,
-        zm.Mat4f.perspective(std.math.degreesToRadians(70.0), @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)), 0.1, 100.0),
+        "src/assets/textures/skybox.jpg",
+        zm.Mat4f.perspective(
+            std.math.degreesToRadians(70.0),
+            @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)),
+            0.1, 100.0
+        ),
         cam.getViewMatrix(),
     );
-    defer webgpu.destroy();
+    defer renderer.destroy();
 
-    // var lightmapTexture = try texture_handler.loadTexture("src/assets/textures/dust2lightmap.jpg", .color, webgpu.device, webgpu.queue);
+    // var lightmapTexture = try texture_handler.loadTexture("src/assets/textures/dust2lightmap.jpg", .color, renderer.device, renderer.queue);
     // defer lightmapTexture.release();
 
     var mesh_data = mesh_handler.Mesh.fromFile(allocator, @embedFile("assets/models/obamid.obj")) catch |err| {
@@ -80,19 +84,19 @@ pub fn main() !void {
     };
     defer mesh_data.destroy(allocator);
 
-    var mesh = mesh_handler.WgpuMesh.create(mesh_data, webgpu.device);
+    var mesh = mesh_handler.WgpuMesh.create(mesh_data, renderer.device);
     defer mesh.destroy();
 
-    try webgpu.pipelines.put(.basic, webgpu.device.createRenderPipeline(&.{
+    try renderer.pipelines.put(.basic, renderer.device.createRenderPipeline(&.{
         .label = wgpu.StringView.sliced("basic_pipeline"),
         .layout = null,
         .vertex = .{
-            .module = webgpu.shader_module,
+            .module = renderer.shader_module,
             .entry_point = wgpu.StringView.sliced("vs_main"),
             .constant_count = 0,
             .constants = null,
-            .buffer_count = webgpu_utils.default_vertex_buffer_layout.len,
-            .buffers = &webgpu_utils.default_vertex_buffer_layout,
+            .buffer_count = renderer_handler.default_vertex_buffer_layout.len,
+            .buffers = &renderer_handler.default_vertex_buffer_layout,
         },
         .primitive = .{
             .topology = .triangle_list,
@@ -106,27 +110,27 @@ pub fn main() !void {
         },
         .multisample = .{},
         .fragment = &.{
-            .module = webgpu.shader_module,
+            .module = renderer.shader_module,
             .entry_point = wgpu.StringView.sliced("fs_unlit"),
             .constant_count = 0,
             .constants = null,
-            .target_count = webgpu.color_targets.len,
-            .targets = &webgpu.color_targets,
+            .target_count = renderer.color_targets.len,
+            .targets = &renderer.color_targets,
         },
     }));
 
-    const texture_views = try texture_handler.texViewsFromPaths(1, .{"src/assets/textures/obama.png"}, .{.color}, webgpu.device, webgpu.queue);
+    const texture_views = try texture_handler.texViewsFromPaths(1, .{"src/assets/textures/obama.png"}, .{.color}, renderer.device, renderer.queue);
     defer for (texture_views) |view| {
         view.release();
     };
 
-    var projections = try std.ArrayList(webgpu_utils.Projection).initCapacity(allocator, 32);
+    var projections = try std.ArrayList(renderer_handler.Transformation_Mat).initCapacity(allocator, 32);
     defer projections.deinit(allocator);
 
     for (0..32) |i| {
-        var proj = webgpu_utils.Projection.createBasicModel(webgpu.device);
+        var proj = renderer_handler.Transformation_Mat.createBasicModel(renderer.device);
         proj.matrix = zm.Mat4f.translation(0.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0);
-        webgpu.queue.writeBuffer(proj.buffer, f32, @as(*const [16]f32, @ptrCast(&proj.matrix)), 0);
+        renderer.queue.writeBuffer(proj.buffer, f32, @as(*const [16]f32, @ptrCast(&proj.matrix)), 0);
         try projections.append(allocator, proj);
     }
     defer for (projections.items) |proj| {
@@ -138,10 +142,10 @@ pub fn main() !void {
 
     const textures_bind_group = texture_handler.createTextureBindGroup(
         texture_views.len,
-        webgpu.pipelines.get(.basic).?,
-        webgpu.device,
+        renderer.pipelines.get(.basic).?,
+        renderer.device,
         1,
-        webgpu.sampler,
+        renderer.sampler,
         &texture_views,
     );
 
@@ -149,25 +153,25 @@ pub fn main() !void {
         try models.append(allocator, try model_handler.Model.create(
             mesh,
             .{
-                webgpu.projection,
-                webgpu.view,
+                renderer.projection,
+                renderer.view,
                 projections.items[i],
             },
-            webgpu.pipelines.get(.basic).?,
+            renderer.pipelines.get(.basic).?,
             model_handler.createProjectionsBindGroup(
-                webgpu.pipelines.get(.basic).?,
-                webgpu.device,
+                renderer.pipelines.get(.basic).?,
+                renderer.device,
                 0,
-                .{ webgpu.projection.buffer, webgpu.view.buffer, projections.items[i].buffer },
+                .{ renderer.projection.buffer, renderer.view.buffer, projections.items[i].buffer },
             ),
             textures_bind_group,
         ));
     }
     for (models.items) |model| {
-        try webgpu.appendModel(.basic, model);
+        try renderer.appendModel(.basic, model);
     }
 
-    // var model_proj = model_handler.Projection.createBasicModel(webgpu.device);
+    // var model_proj = model_handler.Transformation_Mat.createBasicModel(renderer.device);
     // defer model_proj.buffer.release();
 
     // var model = model_handler.Model.create(
@@ -177,15 +181,15 @@ pub fn main() !void {
     //         .{ .projection = view_data, .buffer = viewBuffer },
     //         projections.items[12],
     //     },
-    //     webgpu.pipelines.get(.basic).?,
-    //     webgpu.device,
+    //     renderer.pipelines.get(.basic).?,
+    //     renderer.device,
     //     sampler,
     //     texture_views.len,
     //     &texture_views,
     // );
     // defer model.destroy();
 
-    // try webgpu.setModels(.basic, &.{ model });
+    // try renderer.setModels(.basic, &.{ model });
 
     std.debug.print("WebGPU initialized successfully!\n", .{});
 
@@ -200,7 +204,7 @@ pub fn main() !void {
         utils.processInput(window, deltaTime);
 
         if (framebuffer_resized) {
-            try webgpu.resize(width, height);
+            try renderer.resize(width, height);
             framebuffer_resized = false;
         }
 
@@ -215,11 +219,11 @@ pub fn main() !void {
         // model.model_proj.projection.data[7] = -0.1;
 
         // Update uniform buffers
-        webgpu.updateView(cam.getViewMatrix());
-        // webgpu.queue.writeBuffer(model.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model.model_proj.projection)), 0);
-        // webgpu.queue.writeBuffer(model2.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model2.model_proj.projection)), 0);
+        renderer.updateView(cam.getViewMatrix());
+        // renderer.queue.writeBuffer(model.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model.model_proj.projection)), 0);
+        // renderer.queue.writeBuffer(model2.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model2.model_proj.projection)), 0);
 
-        webgpu.draw(cam.Position) catch |err| {
+        renderer.draw(cam.Position) catch |err| {
             std.debug.print("Failed to draw frame: {}\n", .{err});
             continue;
         };

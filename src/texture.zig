@@ -1,7 +1,7 @@
 const std = @import("std");
 const wgpu = @import("webgpu");
 const zstbi = @import("zstbi");
-const webgpu_utils = @import("webgpu.zig");
+const renderer_handler = @import("renderer.zig");
 
 const TextureType = enum {
     color, // sRGB (diffuse, albedo, UI textures)

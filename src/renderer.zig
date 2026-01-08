@@ -17,31 +17,27 @@ pub const default_vertex_buffer_layout = [_]wgpu.render_pipeline.VertexBufferLay
     .array_stride = @sizeOf(f32) * 8,
     .step_mode = .vertex,
     .attribute_count = 3,
-    .attributes = &[_]wgpu.render_pipeline.VertexAttribute{
-        .{
-            .format = .float32x3,
-            .offset = 0,
-            .shader_location = 0,
-        },
-        .{
-            .format = .float32x3,
-            .offset = @sizeOf(f32) * 3,
-            .shader_location = 1,
-        },
-        .{
-            .format = .float32x2,
-            .offset = @sizeOf(f32) * 6,
-            .shader_location = 2,
-        }
-    },
+    .attributes = &[_]wgpu.render_pipeline.VertexAttribute{ .{
+        .format = .float32x3,
+        .offset = 0,
+        .shader_location = 0,
+    }, .{
+        .format = .float32x3,
+        .offset = @sizeOf(f32) * 3,
+        .shader_location = 1,
+    }, .{
+        .format = .float32x2,
+        .offset = @sizeOf(f32) * 6,
+        .shader_location = 2,
+    } },
 }};
 
-pub const Projection = struct {
+pub const Transformation_Mat = struct {
     matrix: zm.Mat4f = undefined,
     buffer: *wgpu.buffer.Buffer = undefined,
 
-    pub fn createBasicModel(device: *wgpu.device.Device) Projection {
-        var proj = Projection{
+    pub fn createBasicModel(device: *wgpu.device.Device) Transformation_Mat {
+        var proj = Transformation_Mat{
             .matrix = zm.Mat4f.identity(),
             .buffer = undefined,
         };
@@ -117,7 +113,7 @@ pub fn isInFrustum(model: *const model_handler.Model, viewProj: zm.Mat4f) bool {
     return frustum.containsAABB(model.bounds);
 }
 
-pub const WebGPU = struct {
+pub const Renderer = struct {
     allocator: std.mem.Allocator,
 
     instance: *wgpu.instance.Instance,
@@ -136,8 +132,8 @@ pub const WebGPU = struct {
     pipelines: std.AutoHashMap(Pipelines, *wgpu.render_pipeline.RenderPipeline),
     models: std.AutoHashMap(Pipelines, std.ArrayList(model_handler.Model)),
 
-    projection: Projection,
-    view: Projection,
+    projection: Transformation_Mat,
+    view: Transformation_Mat,
 
     sampler: *wgpu.sampler.Sampler,
     shader_module: *wgpu.shader.ShaderModule,
@@ -156,28 +152,23 @@ pub const WebGPU = struct {
         skybox_texture_path: ?[:0]const u8,
         projection: zm.Mat4f,
         view: zm.Mat4f,
-    ) !WebGPU {
-        var webgpu: WebGPU = undefined;
+    ) !Renderer {
+        var renderer: Renderer = undefined;
 
-        webgpu.allocator = allocator;
-        
-        webgpu.instance = wgpu.instance.Instance.create(null);
-        webgpu.surface = utils.createSurface(webgpu.instance, window);
-        webgpu.adapter = try webgpu.instance.awaitAdapter(&.{
-            .compatible_surface = webgpu.surface,
-            .power_preference = .high_performance,
-            .feature_level = .compatibility
-        });
-        webgpu.device = try webgpu.adapter.awaitDevice(null);
-        webgpu.queue = webgpu.device.getQueue();
-        
+        renderer.allocator = allocator;
+
+        renderer.instance = wgpu.instance.Instance.create(null);
+        renderer.surface = utils.createSurface(renderer.instance, window);
+        renderer.adapter = try renderer.instance.awaitAdapter(&.{ .compatible_surface = renderer.surface, .power_preference = .high_performance, .feature_level = .compatibility });
+        renderer.device = try renderer.adapter.awaitDevice(null);
+        renderer.queue = renderer.device.getQueue();
+
         var caps: wgpu.surface.SurfaceCapabilities = undefined;
-        _ = webgpu.surface.getCapabilities(webgpu.adapter, &caps);
-        webgpu.surface_format = caps.formats[0];
-
-        webgpu.surface.configure(&.{
-            .device = webgpu.device,
-            .format = webgpu.surface_format,
+        _ = renderer.surface.getCapabilities(renderer.adapter, &caps);
+        renderer.surface_format = caps.formats[0];
+        renderer.surface.configure(&.{
+            .device = renderer.device,
+            .format = renderer.surface_format,
             .usage = .{ .render_attachment = true },
             .width = width,
             .height = height,
@@ -187,14 +178,14 @@ pub const WebGPU = struct {
             .present_mode = .fifo,
         });
 
-        webgpu.color_targets = [_]wgpu.render_pipeline.ColorTargetState{.{
-            .format = webgpu.surface_format,
+        renderer.color_targets = [_]wgpu.render_pipeline.ColorTargetState{.{
+            .format = renderer.surface_format,
             .blend = null,
             .write_mask = wgpu.render_pipeline.ColorWriteMask.all,
         }};
 
         // Create depth texture
-        webgpu.depth_texture = webgpu.device.createTexture(&.{
+        renderer.depth_texture = renderer.device.createTexture(&.{
             .usage = .{ .render_attachment = true },
             .dimension = .@"2d",
             .size = .{
@@ -208,56 +199,53 @@ pub const WebGPU = struct {
             .view_format_count = 0,
             .view_formats = null,
         });
-        webgpu.depth_view = webgpu.depth_texture.createView(null);
+        renderer.depth_view = renderer.depth_texture.createView(null);
 
         // Create sampler and shader module
-        webgpu.sampler = webgpu.device.createSampler(&sampler_descriptor);
+        renderer.sampler = renderer.device.createSampler(&sampler_descriptor);
 
         const shader_code = @embedFile("assets/shaders/shader.wgsl");
         var wgsl_source = wgpu.shader.ShaderSourceWGSL{
             .chain = .{ .type = .shader_source_wgsl },
             .code = wgpu.StringView.sliced(shader_code),
         };
-        webgpu.shader_module = webgpu.device.createShaderModule(&.{
+        renderer.shader_module = renderer.device.createShaderModule(&.{
             .next = @ptrCast(&wgsl_source),
             .label = wgpu.StringView.sliced("shader"),
         });
 
         // Create projection and view buffers
-        webgpu.projection.matrix = projection;
-        webgpu.projection.buffer = createBuffer(
-            webgpu.device,
+        renderer.projection.matrix = projection;
+        renderer.projection.buffer = createBuffer(
+            renderer.device,
             f32,
-            @as(*const [16]f32, @ptrCast(&webgpu.projection.matrix)),
+            @as(*const [16]f32, @ptrCast(&renderer.projection.matrix)),
             .{ .uniform = true, .copy_dst = true },
         );
-        webgpu.view.matrix = view;
-        webgpu.view.buffer = createBuffer(
-            webgpu.device,
+        renderer.view.matrix = view;
+        renderer.view.buffer = createBuffer(
+            renderer.device,
             f32,
-            @as(*const [16]f32, @ptrCast(&webgpu.view.matrix)),
+            @as(*const [16]f32, @ptrCast(&renderer.view.matrix)),
             .{ .uniform = true, .copy_dst = true },
         );
 
         // Initialize pipelines and models hashmaps
-        webgpu.pipelines = std.AutoHashMap(Pipelines, *wgpu.render_pipeline.RenderPipeline).init(allocator);
-        webgpu.models = std.AutoHashMap(Pipelines, std.ArrayList(model_handler.Model)).init(allocator);
+        renderer.pipelines = std.AutoHashMap(Pipelines, *wgpu.render_pipeline.RenderPipeline).init(allocator);
+        renderer.models = std.AutoHashMap(Pipelines, std.ArrayList(model_handler.Model)).init(allocator);
 
         inline for (@typeInfo(Pipelines).@"enum".fields) |f| {
-            try webgpu.models.put(
-                @enumFromInt(f.value),
-                try std.ArrayList(model_handler.Model)
-                    .initCapacity(allocator, 32)
-            );
+            try renderer.models.put(@enumFromInt(f.value), try std.ArrayList(model_handler.Model)
+                .initCapacity(allocator, 32));
         }
-        
+
         // Create skybox if texture path provided
         if (skybox_texture_path) |texture_path| {
-            try webgpu.pipelines.put(.skybox, webgpu.device.createRenderPipeline(&.{
+            try renderer.pipelines.put(.skybox, renderer.device.createRenderPipeline(&.{
                 .label = wgpu.StringView.sliced("skybox_pipeline"),
                 .layout = null,
                 .vertex = .{
-                    .module = webgpu.shader_module,
+                    .module = renderer.shader_module,
                     .entry_point = wgpu.StringView.sliced("vs_skybox"),
                     .constant_count = 0,
                     .constants = null,
@@ -276,12 +264,12 @@ pub const WebGPU = struct {
                 },
                 .multisample = .{},
                 .fragment = &.{
-                    .module = webgpu.shader_module,
+                    .module = renderer.shader_module,
                     .entry_point = wgpu.StringView.sliced("fs_unlit"),
                     .constant_count = 0,
                     .constants = null,
-                    .target_count = webgpu.color_targets.len,
-                    .targets = &webgpu.color_targets,
+                    .target_count = renderer.color_targets.len,
+                    .targets = &renderer.color_targets,
                 },
             }));
 
@@ -291,68 +279,57 @@ pub const WebGPU = struct {
             };
             defer skybox_mesh_data.destroy(allocator);
 
-            webgpu.skybox_mesh = mesh_handler.WgpuMesh.create(skybox_mesh_data, webgpu.device);
+            renderer.skybox_mesh = mesh_handler.WgpuMesh.create(skybox_mesh_data, renderer.device);
 
-            const proj = Projection.createBasicModel(webgpu.device);
-            webgpu.skybox_proj_buffer = proj.buffer;
-            
-            const tex_views = try texture_handler.texViewsFromPaths(
-                1,
-                .{texture_path},
-                .{.color},
-                webgpu.device,
-                webgpu.queue
-            );
-            webgpu.skybox_texture_view = tex_views[0];
+            const proj = Transformation_Mat.createBasicModel(renderer.device);
+            renderer.skybox_proj_buffer = proj.buffer;
 
-            try webgpu.setModels(.skybox, &.{ try model_handler.Model.create(
-                webgpu.skybox_mesh.?,
+            const tex_views = try texture_handler.texViewsFromPaths(1, .{texture_path}, .{.color}, renderer.device, renderer.queue);
+            renderer.skybox_texture_view = tex_views[0];
+
+            try renderer.setModels(.skybox, &.{try model_handler.Model.create(
+                renderer.skybox_mesh.?,
                 .{
-                    webgpu.projection,
-                    webgpu.view,
+                    renderer.projection,
+                    renderer.view,
                     proj,
                 },
-                webgpu.pipelines.get(.skybox).?,
+                renderer.pipelines.get(.skybox).?,
                 model_handler.createProjectionsBindGroup(
-                    webgpu.pipelines.get(.skybox).?,
-                    webgpu.device,
+                    renderer.pipelines.get(.skybox).?,
+                    renderer.device,
                     0,
-                    .{ webgpu.projection.buffer, webgpu.view.buffer, proj.buffer },
+                    .{ renderer.projection.buffer, renderer.view.buffer, proj.buffer },
                 ),
                 texture_handler.createTextureBindGroup(
                     tex_views.len,
-                    webgpu.pipelines.get(.skybox).?,
-                    webgpu.device,
+                    renderer.pipelines.get(.skybox).?,
+                    renderer.device,
                     1,
-                    webgpu.sampler,
+                    renderer.sampler,
                     &tex_views,
                 ),
             )});
         } else {
-            webgpu.skybox_mesh = null;
-            webgpu.skybox_texture_view = null;
-            webgpu.skybox_proj_buffer = null;
+            renderer.skybox_mesh = null;
+            renderer.skybox_texture_view = null;
+            renderer.skybox_proj_buffer = null;
         }
 
-        return webgpu;
+        return renderer;
     }
 
-    pub fn updateView(self: *WebGPU, viewMatrix: zm.Mat4f) void {
+    pub fn updateView(self: *Renderer, viewMatrix: zm.Mat4f) void {
         self.view.matrix = viewMatrix;
-        self.queue.writeBuffer(
-            self.view.buffer,
-            f32,
-            @as(*const [16]f32, @ptrCast(&self.view.matrix)),
-            0
-        );
+        self.queue.writeBuffer(self.view.buffer, f32, @as(*const [16]f32, @ptrCast(&self.view.matrix)), 0);
     }
 
-    pub fn resize(self: *WebGPU, width: u32, height: u32) !void {
+    pub fn resize(self: *Renderer, width: u32, height: u32) !void {
         if (width == 0 or height == 0) return;
 
         self.depth_texture.release();
         self.depth_view.release();
-        
+
         self.depth_texture = self.device.createTexture(&.{
             .usage = .{ .render_attachment = true },
             .dimension = .@"2d",
@@ -368,7 +345,7 @@ pub const WebGPU = struct {
             .view_formats = null,
         });
         self.depth_view = self.depth_texture.createView(null);
-        
+
         self.surface.configure(&.{
             .device = self.device,
             .format = self.surface_format,
@@ -386,15 +363,10 @@ pub const WebGPU = struct {
         const aspect_ratio = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
         self.projection.matrix.data[0] = 1.0 / (aspect_ratio * @tan(fov / 2.0));
 
-        self.queue.writeBuffer(
-            self.projection.buffer,
-            f32,
-            @as(*const [16]f32, @ptrCast(&self.projection.matrix)),
-            0
-        );    
+        self.queue.writeBuffer(self.projection.buffer, f32, @as(*const [16]f32, @ptrCast(&self.projection.matrix)), 0);
     }
 
-    pub fn beginFrame(self: *WebGPU) !RenderFrame {
+    pub fn beginFrame(self: *Renderer) !RenderFrame {
         // Get current texture
         var surface_texture: wgpu.surface.SurfaceTexture = undefined;
         self.surface.getCurrentTexture(&surface_texture);
@@ -440,7 +412,7 @@ pub const WebGPU = struct {
         };
     }
 
-    pub fn draw(self: *WebGPU, camPos: zm.Vec3f) !void {
+    pub fn draw(self: *Renderer, camPos: zm.Vec3f) !void {
         const viewProj = zm.Mat4f.multiply(self.projection.matrix, self.view.matrix);
         var frame = try self.beginFrame();
 
@@ -459,12 +431,7 @@ pub const WebGPU = struct {
                 }
             };
 
-            std.mem.sort(
-                model_handler.Model,
-                models_array.items,
-                Context{ .camPos = &camPos },
-                Context.lessThan
-            );
+            std.mem.sort(model_handler.Model, models_array.items, Context{ .camPos = &camPos }, Context.lessThan);
 
             var last_bind_groups = [2]*wgpu.bind_group.BindGroup{
                 models_array.items[0].bind_groups[0],
@@ -500,7 +467,7 @@ pub const WebGPU = struct {
         frame.submit(self.queue, self.surface);
     }
 
-    pub fn setModels(self: *WebGPU, pipeline: Pipelines, models: []const model_handler.Model) !void {
+    pub fn setModels(self: *Renderer, pipeline: Pipelines, models: []const model_handler.Model) !void {
         const models_array = self.models.getPtr(pipeline).?;
         if (models.len > models_array.items.len) {
             try models_array.resize(self.allocator, models.len);
@@ -510,12 +477,12 @@ pub const WebGPU = struct {
         }
     }
 
-    pub fn appendModel(self: *WebGPU, pipeline: Pipelines, model: model_handler.Model) !void {
+    pub fn appendModel(self: *Renderer, pipeline: Pipelines, model: model_handler.Model) !void {
         const models_array = self.models.getPtr(pipeline).?;
         try models_array.append(self.allocator, model);
     }
 
-    pub fn destroy(self: *WebGPU) void {
+    pub fn destroy(self: *Renderer) void {
         // Release all pipelines
         var pipeline_iterator = self.pipelines.iterator();
         while (pipeline_iterator.next()) |entry| {

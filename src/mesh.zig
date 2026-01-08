@@ -1,6 +1,6 @@
 const std = @import("std");
 const wgpu = @import("webgpu");
-const webgpu_utils = @import("webgpu.zig");
+const renderer_handler = @import("renderer.zig");
 const obj = @import("obj");
 
 pub const Mesh = struct {
@@ -68,19 +68,9 @@ pub const WgpuMesh = struct {
         var wgpu_mesh: WgpuMesh = undefined;
         wgpu_mesh.mesh = mesh_data;
 
-        wgpu_mesh.vertex_buffer = webgpu_utils.createBuffer(
-            device,
-            f32,
-            mesh_data.vertices,
-            .{ .vertex = true, .copy_dst = true }
-        );
-    
-        wgpu_mesh.index_buffer = webgpu_utils.createBuffer(
-            device,
-            u16,
-            mesh_data.indices,
-            .{ .index = true, .copy_dst = true }
-        );
+        wgpu_mesh.vertex_buffer = renderer_handler.createBuffer(device, f32, mesh_data.vertices, .{ .vertex = true, .copy_dst = true });
+
+        wgpu_mesh.index_buffer = renderer_handler.createBuffer(device, u16, mesh_data.indices, .{ .index = true, .copy_dst = true });
 
         return wgpu_mesh;
     }

@@ -1,7 +1,7 @@
 const std = @import("std");
 const wgpu = @import("webgpu");
 const mesh_handler = @import("mesh.zig");
-const webgpu_utils = @import("webgpu.zig");
+const renderer_handler = @import("renderer.zig");
 const texture_handler = @import("texture.zig");
 const zm = @import("zm");
 
@@ -11,7 +11,7 @@ pub fn createProjectionsBindGroup(
     comptime index: usize,
     matrices: [3]*wgpu.buffer.Buffer,
 ) *wgpu.bind_group.BindGroup {
-    return webgpu_utils.createBindGroup(
+    return renderer_handler.createBindGroup(
         pipeline,
         device,
         index,
@@ -82,7 +82,7 @@ fn updateBounds(bounds: *zm.AABBf, modelProj: zm.Mat4f) void {
 pub const Model = struct {
     mesh: mesh_handler.WgpuMesh,
 
-    model_proj: webgpu_utils.Projection,
+    model_proj: renderer_handler.Transformation_Mat,
 
     bind_groups: [2]*wgpu.bind_group.BindGroup,
 
@@ -128,7 +128,7 @@ pub const Model = struct {
 
     pub fn create(
         mesh: mesh_handler.WgpuMesh,
-        proj_matrices: [3]webgpu_utils.Projection,
+        proj_matrices: [3]renderer_handler.Transformation_Mat,
         pipeline: *wgpu.render_pipeline.RenderPipeline,
         proj_bind_group: *wgpu.bind_group.BindGroup,
         textures_bind_group: *wgpu.bind_group.BindGroup,
