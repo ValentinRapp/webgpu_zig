@@ -128,9 +128,12 @@ pub fn main() !void {
     defer projections.deinit(allocator);
 
     for (0..32) |i| {
-        var proj = renderer_handler.Transformation_Mat.createBasicModel(renderer.device);
-        proj.matrix = zm.Mat4f.translation(0.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0);
-        renderer.queue.writeBuffer(proj.buffer, f32, @as(*const [16]f32, @ptrCast(&proj.matrix)), 0);
+        const proj = renderer_handler.Transformation_Mat.createModel(
+            renderer.device,
+            1.0,
+            .{ 0.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0 },
+            zm.Mat4f.identity(),
+        );
         try projections.append(allocator, proj);
     }
     defer for (projections.items) |proj| {

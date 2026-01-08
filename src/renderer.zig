@@ -49,6 +49,27 @@ pub const Transformation_Mat = struct {
         );
         return proj;
     }
+
+    pub fn createModel(device: *wgpu.device.Device, scale: f32, position: zm.Vec3f, rotation: zm.Mat4f) Transformation_Mat {
+        var proj = Transformation_Mat{
+            .matrix = zm.Mat4f.identity(),
+            .buffer = undefined,
+        };
+        proj.matrix = zm.Mat4f.multiply(
+            zm.Mat4f.translationVec3(position),
+            zm.Mat4f.multiply(
+                rotation,
+                zm.Mat4f.scaling(scale, scale, scale),
+            ),
+        );
+        proj.buffer = createBuffer(
+            device,
+            f32,
+            @as(*const [16]f32, @ptrCast(&proj.matrix)),
+            .{ .uniform = true, .copy_dst = true },
+        );
+        return proj;
+    }
 };
 
 pub fn createBuffer(device: *wgpu.device.Device, comptime T: type, data: []const T, usage: wgpu.buffer.BufferUsage) *wgpu.buffer.Buffer {
