@@ -7,12 +7,7 @@ const camera_handler = @import("camera.zig");
 const frustum_handler = @import("frustum.zig");
 const texture_handler = @import("texture.zig");
 const mesh_handler = @import("mesh.zig");
-
-pub const Pipelines = enum {
-    skybox,
-    basic,
-    transparent,
-};
+const pipeline_handler = @import("pipeline.zig");
 
 pub const default_vertex_buffer_layout = [_]wgpu.render_pipeline.VertexBufferLayout{.{
     .array_stride = @sizeOf(f32) * 8,
@@ -149,21 +144,18 @@ pub const Renderer = struct {
 
     surface_format: wgpu.texture.TextureFormat,
 
-    color_targets: [1]wgpu.render_pipeline.ColorTargetState,
-
-    pipelines: std.AutoHashMap(Pipelines, *wgpu.render_pipeline.RenderPipeline),
-    models: std.AutoHashMap(Pipelines, std.ArrayList(model_handler.Model)),
+    pipelines: []const pipeline_handler.Pipeline = undefined,
+    models: std.AutoHashMap(*const pipeline_handler.Pipeline, std.ArrayList(model_handler.Model)) = undefined,
 
     projection: Transformation_Mat,
     view: Transformation_Mat,
 
     sampler: *wgpu.sampler.Sampler,
-    shader_module: *wgpu.shader.ShaderModule,
 
     // Skybox resources
-    skybox_mesh: ?mesh_handler.WgpuMesh = null,
-    skybox_texture_view: ?*wgpu.texture_view.TextureView = null,
-    skybox_proj_buffer: ?*wgpu.buffer.Buffer = null,
+    skybox_mesh: ?mesh_handler.WgpuMesh,
+    skybox_texture_view: ?*wgpu.texture_view.TextureView,
+    skybox_proj_buffer: ?*wgpu.buffer.Buffer,
 
     pub fn create(
         allocator: std.mem.Allocator,
@@ -171,7 +163,6 @@ pub const Renderer = struct {
         width: u32,
         height: u32,
         sampler_descriptor: wgpu.sampler.SamplerDescriptor,
-        skybox_texture_path: ?[:0]const u8,
         projection: zm.Mat4f,
         view: zm.Mat4f,
     ) !Renderer {
@@ -200,23 +191,6 @@ pub const Renderer = struct {
             .present_mode = .fifo,
         });
 
-        renderer.color_targets = [_]wgpu.render_pipeline.ColorTargetState{.{
-            .format = renderer.surface_format,
-            .blend = &.{
-                .color = .{
-                    .src_factor = .src_alpha,
-                    .dst_factor = .one_minus_src_alpha,
-                    .operation = .add,
-                },
-                .alpha = .{
-                    .src_factor = .one,
-                    .dst_factor = .one_minus_src_alpha,
-                    .operation = .add,
-                },
-            },
-            .write_mask = wgpu.render_pipeline.ColorWriteMask.all,
-        }};
-
         // Create depth texture
         renderer.depth_texture = renderer.device.createTexture(&.{
             .usage = .{ .render_attachment = true },
@@ -237,16 +211,6 @@ pub const Renderer = struct {
         // Create sampler and shader module
         renderer.sampler = renderer.device.createSampler(&sampler_descriptor);
 
-        const shader_code = @embedFile("assets/shaders/shader.wgsl");
-        var wgsl_source = wgpu.shader.ShaderSourceWGSL{
-            .chain = .{ .type = .shader_source_wgsl },
-            .code = wgpu.StringView.sliced(shader_code),
-        };
-        renderer.shader_module = renderer.device.createShaderModule(&.{
-            .next = @ptrCast(&wgsl_source),
-            .label = wgpu.StringView.sliced("shader"),
-        });
-
         // Create projection and view buffers
         renderer.projection.matrix = projection;
         renderer.projection.buffer = createBuffer(
@@ -262,94 +226,66 @@ pub const Renderer = struct {
             @as(*const [16]f32, @ptrCast(&renderer.view.matrix)),
             .{ .uniform = true, .copy_dst = true },
         );
-
-        // Initialize pipelines and models hashmaps
-        renderer.pipelines = std.AutoHashMap(Pipelines, *wgpu.render_pipeline.RenderPipeline).init(allocator);
-        renderer.models = std.AutoHashMap(Pipelines, std.ArrayList(model_handler.Model)).init(allocator);
-
-        inline for (@typeInfo(Pipelines).@"enum".fields) |f| {
-            try renderer.models.put(@enumFromInt(f.value), try std.ArrayList(model_handler.Model)
-                .initCapacity(allocator, 32));
-        }
-
-        // Create skybox if texture path provided
-        if (skybox_texture_path) |texture_path| {
-            try renderer.pipelines.put(.skybox, renderer.device.createRenderPipeline(&.{
-                .label = wgpu.StringView.sliced("skybox_pipeline"),
-                .layout = null,
-                .vertex = .{
-                    .module = renderer.shader_module,
-                    .entry_point = wgpu.StringView.sliced("vs_skybox"),
-                    .constant_count = 0,
-                    .constants = null,
-                    .buffer_count = default_vertex_buffer_layout.len,
-                    .buffers = &default_vertex_buffer_layout,
-                },
-                .primitive = .{
-                    .topology = .triangle_list,
-                    .front_face = .counter_clockwise,
-                    .cull_mode = .none,
-                },
-                .depth_stencil = &.{
-                    .format = .depth24_plus,
-                    .depth_write_enabled = .false,
-                    .depth_compare = .always,
-                },
-                .multisample = .{},
-                .fragment = &.{
-                    .module = renderer.shader_module,
-                    .entry_point = wgpu.StringView.sliced("fs_unlit"),
-                    .constant_count = 0,
-                    .constants = null,
-                    .target_count = renderer.color_targets.len,
-                    .targets = &renderer.color_targets,
-                },
-            }));
-
-            var skybox_mesh_data = mesh_handler.Mesh.fromFile(allocator, @embedFile("assets/models/skybox.obj")) catch |err| {
-                std.debug.print("Failed to load model: {}\n", .{err});
-                return err;
-            };
-            defer skybox_mesh_data.destroy(allocator);
-
-            renderer.skybox_mesh = mesh_handler.WgpuMesh.create(skybox_mesh_data, renderer.device);
-
-            const proj = Transformation_Mat.createBasicModel(renderer.device);
-            renderer.skybox_proj_buffer = proj.buffer;
-
-            const tex_views = try texture_handler.texViewsFromPaths(1, .{texture_path}, .{.color}, renderer.device, renderer.queue);
-            renderer.skybox_texture_view = tex_views[0];
-
-            try renderer.setModels(.skybox, &.{try model_handler.Model.create(
-                renderer.skybox_mesh.?,
-                .{
-                    renderer.projection,
-                    renderer.view,
-                    proj,
-                },
-                renderer.pipelines.get(.skybox).?,
-                model_handler.createProjectionsBindGroup(
-                    renderer.pipelines.get(.skybox).?,
-                    renderer.device,
-                    0,
-                    .{ renderer.projection.buffer, renderer.view.buffer, proj.buffer },
-                ),
-                texture_handler.createTextureBindGroup(
-                    tex_views.len,
-                    renderer.pipelines.get(.skybox).?,
-                    renderer.device,
-                    1,
-                    renderer.sampler,
-                    &tex_views,
-                ),
-            )});
-        } else {
-            renderer.skybox_mesh = null;
-            renderer.skybox_texture_view = null;
-            renderer.skybox_proj_buffer = null;
-        }
+        renderer.skybox_mesh = null;
+        renderer.skybox_texture_view = null;
+        renderer.skybox_proj_buffer = null;
 
         return renderer;
+    }
+
+    pub fn setSkybox(
+        self: *Renderer,
+        pipeline: *const pipeline_handler.Pipeline,
+        texture_path: [:0]const u8
+    ) !void {
+        var skybox_mesh_data = mesh_handler.Mesh.fromFile(self.allocator, @embedFile("assets/models/skybox.obj")) catch |err| {
+            std.debug.print("Failed to load model: {}\n", .{err});
+            return err;
+        };
+        defer skybox_mesh_data.destroy(self.allocator);
+        self.skybox_mesh = mesh_handler.WgpuMesh.create(skybox_mesh_data, self.device);
+        const proj = Transformation_Mat.createBasicModel(self.device);
+        self.skybox_proj_buffer = proj.buffer;
+        const tex_views = try texture_handler.texViewsFromPaths(
+            1,
+            .{texture_path},
+            .{.color},
+            self.device,
+            self.queue
+        );
+        self.skybox_texture_view = tex_views[0];
+        try self.setModels(pipeline, &.{try model_handler.Model.create(
+            self.skybox_mesh.?,
+            .{
+                self.projection,
+                self.view,
+                proj,
+            },
+            pipeline.pipeline,
+            model_handler.createProjectionsBindGroup(
+                pipeline.pipeline,
+                self.device,
+                0,
+                .{ self.projection.buffer, self.view.buffer, proj.buffer },
+            ),
+            texture_handler.createTextureBindGroup(
+                tex_views.len,
+                pipeline.pipeline,
+                self.device,
+                1,
+                self.sampler,
+                &tex_views,
+            ),
+        )});
+    }
+
+    pub fn setPipelines(self: *Renderer, pipelines: []const pipeline_handler.Pipeline) !void {
+        self.pipelines = pipelines;
+        self.models = std.AutoHashMap(*const pipeline_handler.Pipeline, std.ArrayList(model_handler.Model)).init(self.allocator);
+        for (self.pipelines) |*pipeline| {
+            try self.models.put(pipeline, try std.ArrayList(model_handler.Model)
+                .initCapacity(self.allocator, 32));
+        }
     }
 
     pub fn updateView(self: *Renderer, viewMatrix: zm.Mat4f) void {
@@ -450,15 +386,15 @@ pub const Renderer = struct {
         var frame = try self.beginFrame();
 
         // make explicit render order
-        const render_order = [_]Pipelines{ .skybox, .basic, .transparent };
+        // const render_order = [_]Pipelines{ .skybox, .basic, .transparent };
 
-        for (render_order) |pipeline_type| {
-            const pipeline = self.pipelines.get(pipeline_type) orelse continue;
-            const models_array = self.models.getPtr(pipeline_type) orelse continue;
-            
+        for (self.pipelines) |*pipeline| {
+            // const pipeline = self.pipelines.get(pipeline_type) orelse continue;
+            const models_array = self.models.getPtr(pipeline) orelse continue;
+
             if (models_array.items.len == 0) continue;
 
-            frame.render_pass.setPipeline(pipeline);
+            frame.render_pass.setPipeline(pipeline.pipeline);
 
             const Context = struct {
                 camPos: *const zm.Vec3f,
@@ -476,7 +412,7 @@ pub const Renderer = struct {
                 }
             };
 
-            if (pipeline_type != .transparent) {
+            if (pipeline.sort_front_to_back) {
                 std.mem.sort(
                     model_handler.Model,
                     models_array.items,
@@ -504,7 +440,7 @@ pub const Renderer = struct {
             frame.render_pass.setBindGroup(1, last_bind_groups[1], null);
 
             for (models_array.items) |*model| {
-                if (!isInFrustum(model, viewProj) and pipeline_type != .skybox) {
+                if (!isInFrustum(model, viewProj) and pipeline.frustum_cull) {
                     continue;
                 }
 
@@ -527,7 +463,7 @@ pub const Renderer = struct {
         frame.submit(self.queue, self.surface);
     }
 
-    pub fn setModels(self: *Renderer, pipeline: Pipelines, models: []const model_handler.Model) !void {
+    pub fn setModels(self: *Renderer, pipeline: *const pipeline_handler.Pipeline, models: []const model_handler.Model) !void {
         const models_array = self.models.getPtr(pipeline).?;
         if (models.len > models_array.items.len) {
             try models_array.resize(self.allocator, models.len);
@@ -537,20 +473,12 @@ pub const Renderer = struct {
         }
     }
 
-    pub fn appendModel(self: *Renderer, pipeline: Pipelines, model: model_handler.Model) !void {
+    pub fn appendModel(self: *Renderer, pipeline: *const pipeline_handler.Pipeline, model: model_handler.Model) !void {
         const models_array = self.models.getPtr(pipeline).?;
         try models_array.append(self.allocator, model);
     }
 
     pub fn destroy(self: *Renderer) void {
-        // Release all pipelines
-        var pipeline_iterator = self.pipelines.iterator();
-        while (pipeline_iterator.next()) |entry| {
-            entry.value_ptr.*.release();
-        }
-        self.pipelines.deinit();
-
-        // Release all models
         var iterator = self.models.iterator();
         while (iterator.next()) |entry| {
             for (entry.value_ptr.*.items) |*model| {
@@ -574,7 +502,6 @@ pub const Renderer = struct {
         self.projection.buffer.release();
         self.view.buffer.release();
         self.sampler.release();
-        self.shader_module.release();
         self.depth_texture.release();
         self.depth_view.release();
         self.queue.release();

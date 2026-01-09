@@ -10,6 +10,7 @@ const mesh_handler = @import("mesh.zig");
 const model_handler = @import("model.zig");
 const zstbi = @import("zstbi");
 const texture_handler = @import("texture.zig");
+const pipeline_handler = @import("pipeline.zig");
 
 // const width = 1710 * 1;
 // const height = 1107 * 1;
@@ -24,26 +25,11 @@ pub var framebuffer_resized = false;
 
 pub var cam = camera.createCamera(.{ 0.0, 0.5, 3.0 }, -std.math.pi / 2.0, 0.0);
 
-// // I will probably do something like that in the future to manage pipelines dynamically
-// const Pipeline = struct {
-//     pipeline: *wgpu.render_pipeline.RenderPipeline,
-//     sort_front_to_back: bool = true,
-//     frustum_cull: bool = true,
-// };
-
-// const pipelines = [_]Pipeline{
-//     .{
-//         .pipeline = (ptr to skybox pipeline),
-//         .frustum_cull = false
-//     },
-//     .{
-//         .pipeline = (ptr to basic pipeline),
-//     },
-//     .{
-//         .pipeline = (ptr to transparent pipeline),
-//         .sort_front_to_back = false,
-//     }
-// };
+const pip_i = enum {
+    skybox,
+    basic,
+    transparent,
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
@@ -77,8 +63,6 @@ pub fn main() !void {
         .min_filter = .linear,
         .mipmap_filter = .linear,
     };
-    // var sampler = renderer.device.createSampler(&sampler_descriptor);
-    // defer sampler.release();
 
     var renderer = try renderer_handler.Renderer.create(
         allocator,
@@ -86,15 +70,22 @@ pub fn main() !void {
         width,
         height,
         sampler_descriptor,
-        "src/assets/textures/skybox.jpg",
-        zm.Mat4f.perspective(
-            std.math.degreesToRadians(70.0),
-            @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)),
-            0.1, 100.0
-        ),
+        zm.Mat4f.perspective(std.math.degreesToRadians(70.0), @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)), 0.1, 100.0),
         cam.getViewMatrix(),
     );
     defer renderer.destroy();
+
+    const pipelines = [_]pipeline_handler.Pipeline{
+        try pipeline_handler.createSkyboxPipeline(renderer.device, renderer.surface_format),
+        try pipeline_handler.createBasicPipeline(renderer.device, renderer.surface_format),
+        try pipeline_handler.createTransparencyPipeline(renderer.device, renderer.surface_format),
+    };
+    defer pipeline_handler.destroyBasicShaderModule(renderer.device);
+    defer pipeline_handler.destroyPipelines(&pipelines);
+
+    try renderer.setPipelines(&pipelines);
+
+    try renderer.setSkybox(&pipelines[@intFromEnum(pip_i.skybox)], "src/assets/textures/skybox.jpg");
 
     // var lightmapTexture = try texture_handler.loadTexture("src/assets/textures/dust2lightmap.jpg", .color, renderer.device, renderer.queue);
     // defer lightmapTexture.release();
@@ -108,83 +99,12 @@ pub fn main() !void {
     var mesh = mesh_handler.WgpuMesh.create(mesh_data, renderer.device);
     defer mesh.destroy();
 
-    try renderer.pipelines.put(.basic, renderer.device.createRenderPipeline(&.{
-        .label = wgpu.StringView.sliced("basic_pipeline"),
-        .layout = null,
-        .vertex = .{
-            .module = renderer.shader_module,
-            .entry_point = wgpu.StringView.sliced("vs_main"),
-            .constant_count = 0,
-            .constants = null,
-            .buffer_count = renderer_handler.default_vertex_buffer_layout.len,
-            .buffers = &renderer_handler.default_vertex_buffer_layout,
-        },
-        .primitive = .{
-            .topology = .triangle_list,
-            .front_face = .counter_clockwise,
-            .cull_mode = .back,
-        },
-        .depth_stencil = &.{
-            .format = .depth24_plus,
-            .depth_write_enabled = .true,
-            .depth_compare = .less,
-        },
-        .multisample = .{},
-        .fragment = &.{
-            .module = renderer.shader_module,
-            .entry_point = wgpu.StringView.sliced("fs_unlit"),
-            .constant_count = 0,
-            .constants = null,
-            .target_count = renderer.color_targets.len,
-            .targets = &renderer.color_targets,
-        },
-    }));
-    try renderer.pipelines.put(.transparent, renderer.device.createRenderPipeline(&.{
-        .label = wgpu.StringView.sliced("transparent_pipeline"),
-        .layout = null,
-        .vertex = .{
-            .module = renderer.shader_module,
-            .entry_point = wgpu.StringView.sliced("vs_main"),
-            .constant_count = 0,
-            .constants = null,
-            .buffer_count = renderer_handler.default_vertex_buffer_layout.len,
-            .buffers = &renderer_handler.default_vertex_buffer_layout,
-        },
-        .primitive = .{
-            .topology = .triangle_list,
-            .front_face = .counter_clockwise,
-            .cull_mode = .back,
-        },
-        .depth_stencil = &.{
-            .format = .depth24_plus,
-            .depth_write_enabled = .false,
-            .depth_compare = .less,
-        },
-        .multisample = .{},
-        .fragment = &.{
-            .module = renderer.shader_module,
-            .entry_point = wgpu.StringView.sliced("fs_unlit"),
-            .constant_count = 0,
-            .constants = null,
-            .target_count = renderer.color_targets.len,
-            .targets = &renderer.color_targets,
-        },
-    }));
-
-    const texture_views = try texture_handler.texViewsFromPaths(
-        1,
-        .{"src/assets/textures/obama.png"},
-        .{.color},
-        renderer.device,
-        renderer.queue
-    );
+    const texture_views = try texture_handler.texViewsFromPaths(1, .{"src/assets/textures/obama.png"}, .{.color}, renderer.device, renderer.queue);
     defer for (texture_views) |view| {
         view.release();
     };
 
-    // var projections = try std.ArrayList(renderer_handler.Transformation_Mat).initCapacity(allocator, 32);
     var projections: [32]renderer_handler.Transformation_Mat = undefined;
-    // defer projections.deinit(allocator);
 
     for (0..32) |i| {
         const proj = renderer_handler.Transformation_Mat.createModel(
@@ -199,13 +119,11 @@ pub fn main() !void {
         proj.buffer.release();
     };
 
-    // var models = try std.ArrayList(model_handler.Model).initCapacity(allocator, 32);
     var models: [32]model_handler.Model = undefined;
-    // defer models.deinit(allocator);
 
     const textures_bind_group = texture_handler.createTextureBindGroup(
         texture_views.len,
-        renderer.pipelines.get(.basic).?,
+        pipelines[@intFromEnum(pip_i.basic)].pipeline,
         renderer.device,
         1,
         renderer.sampler,
@@ -220,9 +138,9 @@ pub fn main() !void {
                 renderer.view,
                 projections[i],
             },
-            renderer.pipelines.get(.basic).?,
+            pipelines[@intFromEnum(pip_i.basic)].pipeline,
             model_handler.createProjectionsBindGroup(
-                renderer.pipelines.get(.basic).?,
+                pipelines[@intFromEnum(pip_i.basic)].pipeline,
                 renderer.device,
                 0,
                 .{ renderer.projection.buffer, renderer.view.buffer, projections[i].buffer },
@@ -230,15 +148,10 @@ pub fn main() !void {
             textures_bind_group,
         );
     }
-    try renderer.setModels(.basic, &models);
+    try renderer.setModels(&pipelines[@intFromEnum(pip_i.basic)], &models);
 
-    const transparent_texture_views = try texture_handler.texViewsFromPaths(
-        1,
-        .{"src/assets/textures/amogos.png"},
-        .{.color},
-        renderer.device,
-        renderer.queue
-    );
+
+    const transparent_texture_views = try texture_handler.texViewsFromPaths(1, .{"src/assets/textures/amogos.png"}, .{.color}, renderer.device, renderer.queue);
     defer for (transparent_texture_views) |view| {
         view.release();
     };
@@ -258,13 +171,11 @@ pub fn main() !void {
         proj.buffer.release();
     };
 
-    // var trans_models = try std.ArrayList(model_handler.Model).initCapacity(allocator, 32);
     var trans_models: [32]model_handler.Model = undefined;
-    // defer trans_models.deinit(allocator);
 
     const transparent_textures_bind_group = texture_handler.createTextureBindGroup(
         transparent_texture_views.len,
-        renderer.pipelines.get(.transparent).?,
+        pipelines[@intFromEnum(pip_i.transparent)].pipeline,
         renderer.device,
         1,
         renderer.sampler,
@@ -279,9 +190,9 @@ pub fn main() !void {
                 renderer.view,
                 trans_projections[i],
             },
-            renderer.pipelines.get(.transparent).?,
+            pipelines[@intFromEnum(pip_i.transparent)].pipeline,
             model_handler.createProjectionsBindGroup(
-                renderer.pipelines.get(.transparent).?,
+                pipelines[@intFromEnum(pip_i.transparent)].pipeline,
                 renderer.device,
                 0,
                 .{ renderer.projection.buffer, renderer.view.buffer, trans_projections[i].buffer },
@@ -289,7 +200,7 @@ pub fn main() !void {
             transparent_textures_bind_group,
         );
     }
-    try renderer.setModels(.transparent, &trans_models);
+    try renderer.setModels(&pipelines[@intFromEnum(pip_i.transparent)], &trans_models);
 
     std.debug.print("WebGPU initialized successfully!\n", .{});
 
