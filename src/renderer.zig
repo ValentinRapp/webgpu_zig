@@ -11,6 +11,7 @@ const mesh_handler = @import("mesh.zig");
 pub const Pipelines = enum {
     skybox,
     basic,
+    transparent,
 };
 
 pub const default_vertex_buffer_layout = [_]wgpu.render_pipeline.VertexBufferLayout{.{
@@ -201,7 +202,18 @@ pub const Renderer = struct {
 
         renderer.color_targets = [_]wgpu.render_pipeline.ColorTargetState{.{
             .format = renderer.surface_format,
-            .blend = null,
+            .blend = &.{
+                .color = .{
+                    .src_factor = .src_alpha,
+                    .dst_factor = .one_minus_src_alpha,
+                    .operation = .add,
+                },
+                .alpha = .{
+                    .src_factor = .one,
+                    .dst_factor = .one_minus_src_alpha,
+                    .operation = .add,
+                },
+            },
             .write_mask = wgpu.render_pipeline.ColorWriteMask.all,
         }};
 
@@ -437,10 +449,16 @@ pub const Renderer = struct {
         const viewProj = zm.Mat4f.multiply(self.projection.matrix, self.view.matrix);
         var frame = try self.beginFrame();
 
-        var iterator = self.models.iterator();
-        while (iterator.next()) |entry| {
-            frame.render_pass.setPipeline(self.pipelines.get(entry.key_ptr.*) orelse continue);
-            const models_array = entry.value_ptr.*;
+        // make explicit render order
+        const render_order = [_]Pipelines{ .skybox, .basic, .transparent };
+
+        for (render_order) |pipeline_type| {
+            const pipeline = self.pipelines.get(pipeline_type) orelse continue;
+            const models_array = self.models.getPtr(pipeline_type) orelse continue;
+            
+            if (models_array.items.len == 0) continue;
+
+            frame.render_pass.setPipeline(pipeline);
 
             const Context = struct {
                 camPos: *const zm.Vec3f,
@@ -450,9 +468,33 @@ pub const Renderer = struct {
                     const dist_b = zm.vec.distance(b.getPos(), ctx.camPos.*);
                     return dist_a < dist_b;
                 }
+
+                pub fn moreThan(ctx: @This(), a: model_handler.Model, b: model_handler.Model) bool {
+                    const dist_a = zm.vec.distance(a.getPos(), ctx.camPos.*);
+                    const dist_b = zm.vec.distance(b.getPos(), ctx.camPos.*);
+                    return dist_a > dist_b;
+                }
             };
 
-            std.mem.sort(model_handler.Model, models_array.items, Context{ .camPos = &camPos }, Context.lessThan);
+            if (pipeline_type != .transparent) {
+                std.mem.sort(
+                    model_handler.Model,
+                    models_array.items,
+                    Context{
+                        .camPos = &camPos,
+                    },
+                    Context.lessThan,
+                );
+            } else {
+                std.mem.sort(
+                    model_handler.Model,
+                    models_array.items,
+                    Context{
+                        .camPos = &camPos,
+                    },
+                    Context.moreThan,
+                );
+            }
 
             var last_bind_groups = [2]*wgpu.bind_group.BindGroup{
                 models_array.items[0].bind_groups[0],
@@ -462,8 +504,7 @@ pub const Renderer = struct {
             frame.render_pass.setBindGroup(1, last_bind_groups[1], null);
 
             for (models_array.items) |*model| {
-                if (!isInFrustum(model, viewProj) and entry.key_ptr.* != .skybox) {
-                    // std.debug.print("0 ", .{});
+                if (!isInFrustum(model, viewProj) and pipeline_type != .skybox) {
                     continue;
                 }
 
@@ -476,10 +517,8 @@ pub const Renderer = struct {
                     last_bind_groups[1] = model.bind_groups[1];
                 }
 
-                // std.debug.print("1 ", .{});
                 model.draw(frame.render_pass);
             }
-            // std.debug.print("\n", .{});
         }
 
         frame.render_pass.end();

@@ -24,6 +24,27 @@ pub var framebuffer_resized = false;
 
 pub var cam = camera.createCamera(.{ 0.0, 0.5, 3.0 }, -std.math.pi / 2.0, 0.0);
 
+// // I will probably do something like that in the future to manage pipelines dynamically
+// const Pipeline = struct {
+//     pipeline: *wgpu.render_pipeline.RenderPipeline,
+//     sort_front_to_back: bool = true,
+//     frustum_cull: bool = true,
+// };
+
+// const pipelines = [_]Pipeline{
+//     .{
+//         .pipeline = (ptr to skybox pipeline),
+//         .frustum_cull = false
+//     },
+//     .{
+//         .pipeline = (ptr to basic pipeline),
+//     },
+//     .{
+//         .pipeline = (ptr to transparent pipeline),
+//         .sort_front_to_back = false,
+//     }
+// };
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
@@ -118,14 +139,52 @@ pub fn main() !void {
             .targets = &renderer.color_targets,
         },
     }));
+    try renderer.pipelines.put(.transparent, renderer.device.createRenderPipeline(&.{
+        .label = wgpu.StringView.sliced("transparent_pipeline"),
+        .layout = null,
+        .vertex = .{
+            .module = renderer.shader_module,
+            .entry_point = wgpu.StringView.sliced("vs_main"),
+            .constant_count = 0,
+            .constants = null,
+            .buffer_count = renderer_handler.default_vertex_buffer_layout.len,
+            .buffers = &renderer_handler.default_vertex_buffer_layout,
+        },
+        .primitive = .{
+            .topology = .triangle_list,
+            .front_face = .counter_clockwise,
+            .cull_mode = .back,
+        },
+        .depth_stencil = &.{
+            .format = .depth24_plus,
+            .depth_write_enabled = .false,
+            .depth_compare = .less,
+        },
+        .multisample = .{},
+        .fragment = &.{
+            .module = renderer.shader_module,
+            .entry_point = wgpu.StringView.sliced("fs_unlit"),
+            .constant_count = 0,
+            .constants = null,
+            .target_count = renderer.color_targets.len,
+            .targets = &renderer.color_targets,
+        },
+    }));
 
-    const texture_views = try texture_handler.texViewsFromPaths(1, .{"src/assets/textures/obama.png"}, .{.color}, renderer.device, renderer.queue);
+    const texture_views = try texture_handler.texViewsFromPaths(
+        1,
+        .{"src/assets/textures/obama.png"},
+        .{.color},
+        renderer.device,
+        renderer.queue
+    );
     defer for (texture_views) |view| {
         view.release();
     };
 
-    var projections = try std.ArrayList(renderer_handler.Transformation_Mat).initCapacity(allocator, 32);
-    defer projections.deinit(allocator);
+    // var projections = try std.ArrayList(renderer_handler.Transformation_Mat).initCapacity(allocator, 32);
+    var projections: [32]renderer_handler.Transformation_Mat = undefined;
+    // defer projections.deinit(allocator);
 
     for (0..32) |i| {
         const proj = renderer_handler.Transformation_Mat.createModel(
@@ -134,14 +193,15 @@ pub fn main() !void {
             .{ 0.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0 },
             zm.Mat4f.identity(),
         );
-        try projections.append(allocator, proj);
+        projections[i] = proj;
     }
-    defer for (projections.items) |proj| {
+    defer for (projections) |proj| {
         proj.buffer.release();
     };
 
-    var models = try std.ArrayList(model_handler.Model).initCapacity(allocator, 32);
-    defer models.deinit(allocator);
+    // var models = try std.ArrayList(model_handler.Model).initCapacity(allocator, 32);
+    var models: [32]model_handler.Model = undefined;
+    // defer models.deinit(allocator);
 
     const textures_bind_group = texture_handler.createTextureBindGroup(
         texture_views.len,
@@ -153,46 +213,83 @@ pub fn main() !void {
     );
 
     for (0..32) |i| {
-        try models.append(allocator, try model_handler.Model.create(
+        models[i] = try model_handler.Model.create(
             mesh,
             .{
                 renderer.projection,
                 renderer.view,
-                projections.items[i],
+                projections[i],
             },
             renderer.pipelines.get(.basic).?,
             model_handler.createProjectionsBindGroup(
                 renderer.pipelines.get(.basic).?,
                 renderer.device,
                 0,
-                .{ renderer.projection.buffer, renderer.view.buffer, projections.items[i].buffer },
+                .{ renderer.projection.buffer, renderer.view.buffer, projections[i].buffer },
             ),
             textures_bind_group,
-        ));
+        );
     }
-    for (models.items) |model| {
-        try renderer.appendModel(.basic, model);
+    try renderer.setModels(.basic, &models);
+
+    const transparent_texture_views = try texture_handler.texViewsFromPaths(
+        1,
+        .{"src/assets/textures/amogos.png"},
+        .{.color},
+        renderer.device,
+        renderer.queue
+    );
+    defer for (transparent_texture_views) |view| {
+        view.release();
+    };
+
+    var trans_projections: [32]renderer_handler.Transformation_Mat = undefined;
+
+    for (0..32) |i| {
+        const proj = renderer_handler.Transformation_Mat.createModel(
+            renderer.device,
+            1.0,
+            .{ @as(f32, @floatFromInt(i)) * 2.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0 },
+            zm.Mat4f.identity(),
+        );
+        trans_projections[i] = proj;
     }
+    defer for (trans_projections) |proj| {
+        proj.buffer.release();
+    };
 
-    // var model_proj = model_handler.Transformation_Mat.createBasicModel(renderer.device);
-    // defer model_proj.buffer.release();
+    // var trans_models = try std.ArrayList(model_handler.Model).initCapacity(allocator, 32);
+    var trans_models: [32]model_handler.Model = undefined;
+    // defer trans_models.deinit(allocator);
 
-    // var model = model_handler.Model.create(
-    //     mesh,
-    //     .{
-    //         .{ .projection = proj_data, .buffer = projBuffer },
-    //         .{ .projection = view_data, .buffer = viewBuffer },
-    //         projections.items[12],
-    //     },
-    //     renderer.pipelines.get(.basic).?,
-    //     renderer.device,
-    //     sampler,
-    //     texture_views.len,
-    //     &texture_views,
-    // );
-    // defer model.destroy();
+    const transparent_textures_bind_group = texture_handler.createTextureBindGroup(
+        transparent_texture_views.len,
+        renderer.pipelines.get(.transparent).?,
+        renderer.device,
+        1,
+        renderer.sampler,
+        &transparent_texture_views,
+    );
 
-    // try renderer.setModels(.basic, &.{ model });
+    for (0..32) |i| {
+        trans_models[i] = try model_handler.Model.create(
+            mesh,
+            .{
+                renderer.projection,
+                renderer.view,
+                trans_projections[i],
+            },
+            renderer.pipelines.get(.transparent).?,
+            model_handler.createProjectionsBindGroup(
+                renderer.pipelines.get(.transparent).?,
+                renderer.device,
+                0,
+                .{ renderer.projection.buffer, renderer.view.buffer, trans_projections[i].buffer },
+            ),
+            transparent_textures_bind_group,
+        );
+    }
+    try renderer.setModels(.transparent, &trans_models);
 
     std.debug.print("WebGPU initialized successfully!\n", .{});
 
