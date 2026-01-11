@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const wgpu = @import("webgpu");
 const utils = @import("utils/utils.zig");
 const model_handler = @import("model.zig");
@@ -478,12 +479,9 @@ pub const Renderer = struct {
         try models_array.append(self.allocator, model);
     }
 
-    pub fn destroy(self: *Renderer) void {
+    pub fn destroyModels(self: *Renderer) void {
         var iterator = self.models.iterator();
         while (iterator.next()) |entry| {
-            for (entry.value_ptr.*.items) |*model| {
-                model.destroy();
-            }
             entry.value_ptr.*.deinit(self.allocator);
         }
         self.models.deinit();
@@ -498,16 +496,20 @@ pub const Renderer = struct {
         if (self.skybox_proj_buffer) |buffer| {
             buffer.release();
         }
+    }
 
+    pub fn destroy(self: *Renderer) void {
         self.projection.buffer.release();
         self.view.buffer.release();
         self.sampler.release();
         self.depth_texture.release();
         self.depth_view.release();
         self.queue.release();
-        self.device.release();
-        self.adapter.release();
+
+        self.surface.unconfigure();
         self.surface.release();
+        self.device.destroy();
+        self.adapter.release();
         self.instance.release();
     }
 };

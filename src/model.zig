@@ -144,10 +144,4 @@ pub const Model = struct {
             .bounds = bounds,
         };
     }
-
-    pub fn destroy(self: *Model) void {
-        for (self.bind_groups) |bind_group| {
-            bind_group.release();
-        }
-    }
 };

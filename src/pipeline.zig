@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const wgpu = @import("webgpu");
 const renderer_handler = @import("renderer.zig");
 
@@ -7,7 +8,7 @@ pub fn getBasicShaderModule(device: *wgpu.device.Device) !*wgpu.shader.ShaderMod
         var module: ?*wgpu.shader.ShaderModule = null;
         var _device: ?*wgpu.device.Device = null;
     };
-    
+
     // lazy initialization
     if (static.module == null) {
         var wgsl_source = wgpu.shader.ShaderSourceWGSL{
@@ -20,11 +21,11 @@ pub fn getBasicShaderModule(device: *wgpu.device.Device) !*wgpu.shader.ShaderMod
         });
         static._device = device;
     }
-    
+
     if (static._device != device) {
         return error.MultipleDevicesNotSupported;
     }
-    
+
     return static.module.?;
 }
 

@@ -3,6 +3,12 @@ const wgpu = @import("webgpu");
 const glfw = @import("glfw");
 const main = @import("../main.zig");
 
+pub fn releaseBindGroups(bind_groups: []const *wgpu.bind_group.BindGroup) void {
+    for (bind_groups) |bg| {
+        bg.release();
+    }
+}
+
 /// Creates a WebGPU surface from a GLFW window (cross-platform)
 pub fn createSurface(instance: *wgpu.instance.Instance, window: *glfw.Window) *wgpu.surface.Surface {
     if (comptime builtin.os.tag == .macos) {

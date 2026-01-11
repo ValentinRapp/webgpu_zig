@@ -71,8 +71,20 @@ pub fn build(b: *std.Build) void {
 
         exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
         exe.root_module.linkSystemLibrary("wgpu_native", .{});
+    } else if (target.result.os.tag == .linux) {
+        exe.root_module.linkSystemLibrary("glfw", .{});
+        exe.root_module.linkSystemLibrary("wgpu_native", .{});
+
+        // X11
+        exe.root_module.linkSystemLibrary("X11", .{});
+        exe.root_module.linkSystemLibrary("Xcursor", .{});
+        exe.root_module.linkSystemLibrary("Xrandr", .{});
+        exe.root_module.linkSystemLibrary("Xi", .{});
+
+        // Wayland
+        exe.root_module.linkSystemLibrary("wayland-client", .{});
     } else {
-        @panic("Unsupported OS (only Windows and macOS are supported atm)");
+        @panic("Unsupported OS (only Windows, macOS, and Linux are supported)");
     }
     b.installArtifact(exe);
 

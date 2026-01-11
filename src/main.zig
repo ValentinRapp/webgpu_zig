@@ -149,7 +149,13 @@ pub fn main() !void {
         );
     }
     try renderer.setModels(&pipelines[@intFromEnum(pip_i.basic)], &models);
-
+    defer {
+        var proj_bind_groups: [32]*wgpu.bind_group.BindGroup = undefined;
+        for (0..32) |i| {
+            proj_bind_groups[i] = models[i].bind_groups[0];
+        }
+        utils.releaseBindGroups(&proj_bind_groups);
+    }
 
     const transparent_texture_views = try texture_handler.texViewsFromPaths(1, .{"src/assets/textures/amogos.png"}, .{.color}, renderer.device, renderer.queue);
     defer for (transparent_texture_views) |view| {
@@ -181,6 +187,7 @@ pub fn main() !void {
         renderer.sampler,
         &transparent_texture_views,
     );
+    defer utils.releaseBindGroups(&.{ textures_bind_group, transparent_textures_bind_group });
 
     for (0..32) |i| {
         trans_models[i] = try model_handler.Model.create(
@@ -201,6 +208,14 @@ pub fn main() !void {
         );
     }
     try renderer.setModels(&pipelines[@intFromEnum(pip_i.transparent)], &trans_models);
+    defer {
+        var proj_bind_groups: [32]*wgpu.bind_group.BindGroup = undefined;
+        for (0..32) |i| {
+            proj_bind_groups[i] = trans_models[i].bind_groups[0];
+        }
+        utils.releaseBindGroups(&proj_bind_groups);
+    }
+    defer renderer.destroyModels();
 
     std.debug.print("WebGPU initialized successfully!\n", .{});
 
