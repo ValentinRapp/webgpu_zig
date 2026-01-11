@@ -2,6 +2,13 @@
 
 ## Installing dependencies
 
+### macOS
+
+```bash
+# Install GLFW and wgpu-native using Homebrew
+brew install glfw wgpu-native
+```
+
 ### Linux (Arch)
 
 ```bash

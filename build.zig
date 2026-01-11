@@ -64,12 +64,6 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
         exe.root_module.linkSystemLibrary("glfw", .{});
         exe.root_module.linkFramework("Cocoa", .{});
-        exe.root_module.linkFramework("IOKit", .{});
-        exe.root_module.linkFramework("CoreFoundation", .{});
-        exe.root_module.linkFramework("QuartzCore", .{});
-        exe.root_module.linkFramework("Metal", .{});
-
-        exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
         exe.root_module.linkSystemLibrary("wgpu_native", .{});
     } else if (target.result.os.tag == .linux) {
         exe.root_module.linkSystemLibrary("glfw", .{});
