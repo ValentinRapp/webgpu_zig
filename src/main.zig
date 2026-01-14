@@ -121,6 +121,10 @@ pub fn main() !void {
 
     var models: [32]model_handler.Model = undefined;
 
+    var bind_groups = try std.ArrayList(*wgpu.bind_group.BindGroup).initCapacity(allocator, 32);
+    defer bind_groups.deinit(allocator);
+    defer utils.releaseBindGroups(bind_groups.items);
+
     const textures_bind_group = texture_handler.createTextureBindGroup(
         texture_views.len,
         pipelines[@intFromEnum(pip_i.basic)].pipeline,
@@ -130,7 +134,19 @@ pub fn main() !void {
         &texture_views,
     );
 
+    try bind_groups.append(allocator, textures_bind_group);
+
     for (0..32) |i| {
+
+        const model_bind_group = model_handler.createProjectionsBindGroup(
+            pipelines[@intFromEnum(pip_i.basic)].pipeline,
+            renderer.device,
+            0,
+            .{ renderer.projection.buffer, renderer.view.buffer, projections[i].buffer },
+        );
+
+        try bind_groups.append(allocator, model_bind_group);
+
         models[i] = try model_handler.Model.create(
             mesh,
             .{
@@ -139,23 +155,11 @@ pub fn main() !void {
                 projections[i],
             },
             pipelines[@intFromEnum(pip_i.basic)].pipeline,
-            model_handler.createProjectionsBindGroup(
-                pipelines[@intFromEnum(pip_i.basic)].pipeline,
-                renderer.device,
-                0,
-                .{ renderer.projection.buffer, renderer.view.buffer, projections[i].buffer },
-            ),
+            model_bind_group,
             textures_bind_group,
         );
     }
     try renderer.setModels(&pipelines[@intFromEnum(pip_i.basic)], &models);
-    defer {
-        var proj_bind_groups: [32]*wgpu.bind_group.BindGroup = undefined;
-        for (0..32) |i| {
-            proj_bind_groups[i] = models[i].bind_groups[0];
-        }
-        utils.releaseBindGroups(&proj_bind_groups);
-    }
 
     const transparent_texture_views = try texture_handler.texViewsFromPaths(1, .{"src/assets/textures/amogos.png"}, .{.color}, renderer.device, renderer.queue);
     defer for (transparent_texture_views) |view| {
@@ -187,9 +191,19 @@ pub fn main() !void {
         renderer.sampler,
         &transparent_texture_views,
     );
-    defer utils.releaseBindGroups(&.{ textures_bind_group, transparent_textures_bind_group });
+    try bind_groups.append(allocator, transparent_textures_bind_group);
 
     for (0..32) |i| {
+
+        const model_trans_bind_group = model_handler.createProjectionsBindGroup(
+            pipelines[@intFromEnum(pip_i.transparent)].pipeline,
+            renderer.device,
+            0,
+            .{ renderer.projection.buffer, renderer.view.buffer, trans_projections[i].buffer },
+        );
+
+        try bind_groups.append(allocator, model_trans_bind_group);
+
         trans_models[i] = try model_handler.Model.create(
             mesh,
             .{
@@ -198,23 +212,12 @@ pub fn main() !void {
                 trans_projections[i],
             },
             pipelines[@intFromEnum(pip_i.transparent)].pipeline,
-            model_handler.createProjectionsBindGroup(
-                pipelines[@intFromEnum(pip_i.transparent)].pipeline,
-                renderer.device,
-                0,
-                .{ renderer.projection.buffer, renderer.view.buffer, trans_projections[i].buffer },
-            ),
+            model_trans_bind_group,
             transparent_textures_bind_group,
         );
     }
     try renderer.setModels(&pipelines[@intFromEnum(pip_i.transparent)], &trans_models);
-    defer {
-        var proj_bind_groups: [32]*wgpu.bind_group.BindGroup = undefined;
-        for (0..32) |i| {
-            proj_bind_groups[i] = trans_models[i].bind_groups[0];
-        }
-        utils.releaseBindGroups(&proj_bind_groups);
-    }
+
     defer renderer.destroyModels();
 
     std.debug.print("WebGPU initialized successfully!\n", .{});
