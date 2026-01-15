@@ -21,8 +21,6 @@ yay -S wgpu-native
 paru -S wgpu-native
 ```
 
-> X11 is untested, it should work, but I can't guarantee it
-
 ### Windows
 
 - Download [wgpu-native](https://github.com/gfx-rs/wgpu-native/releases) and put its content in your msys64 folder (``C:/msys64/mingw64``)
