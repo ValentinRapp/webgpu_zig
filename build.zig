@@ -1,7 +1,12 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    const target = b.standardTargetOptions(.{
+        .default_target = .{
+            // Use GNU ABI on Windows to be compatible with MinGW libraries
+            .abi = if (@import("builtin").os.tag == .windows) .gnu else null,
+        },
+    });
     const optimize = b.standardOptimizeOption(.{});
 
     const wgpu = b.dependency("wgpu_native", .{
@@ -55,7 +60,7 @@ pub fn build(b: *std.Build) void {
         exe.linkSystemLibrary("wgpu_native");
 
         const install_dll = b.addInstallBinFile(
-            .{ .cwd_relative = "C:/msys64/mingw64/bin/wgpu_native.dll" },
+            .{ .cwd_relative = "C:/msys64/mingw64/lib/wgpu_native.dll" },
             "wgpu_native.dll"
         );
         b.getInstallStep().dependOn(&install_dll.step);
