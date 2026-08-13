@@ -26,8 +26,8 @@ fn computeAABB(mesh: *const mesh_handler.Mesh) !zm.AABBf {
     if (vertices.len < 3) return error.InvalidMesh;
 
     var aabb = zm.AABBf.init(
-        .{ vertices[0], vertices[1], vertices[2] },
-        .{ vertices[0], vertices[1], vertices[2] },
+        .{ .data = .{ vertices[0], vertices[1], vertices[2] } },
+        .{ .data = .{ vertices[0], vertices[1], vertices[2] } },
     );
 
     var i: usize = 3;
@@ -35,8 +35,8 @@ fn computeAABB(mesh: *const mesh_handler.Mesh) !zm.AABBf {
         const x = vertices[i];
         const y = vertices[i + 1];
         const z = vertices[i + 2];
-        aabb.min = .{ @min(aabb.min[0], x), @min(aabb.min[1], y), @min(aabb.min[2], z) };
-        aabb.max = .{ @max(aabb.max[0], x), @max(aabb.max[1], y), @max(aabb.max[2], z) };
+        aabb.min = .{ .data = .{ @min(aabb.min.data[0], x), @min(aabb.min.data[1], y), @min(aabb.min.data[2], z) } };
+        aabb.max = .{ .data = .{ @max(aabb.max.data[0], x), @max(aabb.max.data[1], y), @max(aabb.max.data[2], z) } };
     }
     return aabb;
 }
@@ -45,34 +45,34 @@ fn updateBounds(bounds: *zm.AABBf, modelProj: zm.Mat4f) void {
     const modelT = modelProj;
 
     const corners = [8]zm.Vec4f{
-        .{ bounds.min[0], bounds.min[1], bounds.min[2], 1.0 },
-        .{ bounds.max[0], bounds.min[1], bounds.min[2], 1.0 },
-        .{ bounds.min[0], bounds.max[1], bounds.min[2], 1.0 },
-        .{ bounds.max[0], bounds.max[1], bounds.min[2], 1.0 },
-        .{ bounds.min[0], bounds.min[1], bounds.max[2], 1.0 },
-        .{ bounds.max[0], bounds.min[1], bounds.max[2], 1.0 },
-        .{ bounds.min[0], bounds.max[1], bounds.max[2], 1.0 },
-        .{ bounds.max[0], bounds.max[1], bounds.max[2], 1.0 },
+        .{ .data = .{ bounds.min.data[0], bounds.min.data[1], bounds.min.data[2], 1.0 } },
+        .{ .data = .{ bounds.max.data[0], bounds.min.data[1], bounds.min.data[2], 1.0 } },
+        .{ .data = .{ bounds.min.data[0], bounds.max.data[1], bounds.min.data[2], 1.0 } },
+        .{ .data = .{ bounds.max.data[0], bounds.max.data[1], bounds.min.data[2], 1.0 } },
+        .{ .data = .{ bounds.min.data[0], bounds.min.data[1], bounds.max.data[2], 1.0 } },
+        .{ .data = .{ bounds.max.data[0], bounds.min.data[1], bounds.max.data[2], 1.0 } },
+        .{ .data = .{ bounds.min.data[0], bounds.max.data[1], bounds.max.data[2], 1.0 } },
+        .{ .data = .{ bounds.max.data[0], bounds.max.data[1], bounds.max.data[2], 1.0 } },
     };
 
     // Transform first corner to initialize new min/max
-    const first = zm.Mat4f.multiplyVec4(modelT, corners[0]);
-    var newMin = zm.Vec3f{ first[0], first[1], first[2] };
+    const first = zm.Mat4f.multiplyVec(modelT, corners[0]);
+    var newMin = zm.Vec3f{ .data = .{ first.data[0], first.data[1], first.data[2] } };
     var newMax = newMin;
 
     // Transform the other corners and update min/max
     for (corners[1..]) |corner| {
-        const transformed = zm.Mat4f.multiplyVec4(modelT, corner);
-        newMin = .{
-            @min(newMin[0], transformed[0]),
-            @min(newMin[1], transformed[1]),
-            @min(newMin[2], transformed[2]),
-        };
-        newMax = .{
-            @max(newMax[0], transformed[0]),
-            @max(newMax[1], transformed[1]),
-            @max(newMax[2], transformed[2]),
-        };
+        const transformed = zm.Mat4f.multiplyVec(modelT, corner);
+        newMin = .{ .data = .{
+            @min(newMin.data[0], transformed.data[0]),
+            @min(newMin.data[1], transformed.data[1]),
+            @min(newMin.data[2], transformed.data[2]),
+        } };
+        newMax = .{ .data = .{
+            @max(newMax.data[0], transformed.data[0]),
+            @max(newMax.data[1], transformed.data[1]),
+            @max(newMax.data[2], transformed.data[2]),
+        } };
     }
 
     bounds.min = newMin;
@@ -97,11 +97,11 @@ pub const Model = struct {
     }
 
     pub fn getPos(self: *const Model) zm.Vec3f {
-        return zm.Vec3f{
-            self.model_proj.matrix.data[3],
-            self.model_proj.matrix.data[7],
-            self.model_proj.matrix.data[11],
-        };
+        return zm.Vec3f{ .data = .{
+            self.model_proj.matrix.data[0][3],
+            self.model_proj.matrix.data[1][3],
+            self.model_proj.matrix.data[2][3],
+        } };
     }
 
     pub fn setModelMatrix(self: *Model, queue: *wgpu.queue.Queue, modelMatrix: zm.Mat4f) void {

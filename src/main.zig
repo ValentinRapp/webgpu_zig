@@ -23,7 +23,7 @@ pub var width: u32 = 1280;
 pub var height: u32 = 720;
 pub var framebuffer_resized = false;
 
-pub var cam = camera.createCamera(.{ 0.0, 0.5, 3.0 }, -std.math.pi / 2.0, 0.0);
+pub var cam = camera.createCamera(.{ .data = .{ 0.0, 0.5, 3.0 } }, -std.math.pi / 2.0, 0.0);
 
 const pip_i = enum {
     skybox,
@@ -31,12 +31,12 @@ const pip_i = enum {
     transparent,
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+pub fn main(init: std.process.Init) !void {
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    zstbi.init(allocator);
+    zstbi.init(init.io, allocator);
     defer zstbi.deinit();
 
     zstbi.setFlipVerticallyOnLoad(true);
@@ -70,7 +70,7 @@ pub fn main() !void {
         width,
         height,
         sampler_descriptor,
-        zm.Mat4f.perspective(std.math.degreesToRadians(70.0), @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)), 0.1, 100.0),
+        zm.Mat4f.perspectiveRH(std.math.degreesToRadians(70.0), @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)), 0.1, 100.0),
         cam.getViewMatrix(),
     );
     defer renderer.destroy();
@@ -110,7 +110,7 @@ pub fn main() !void {
         const proj = renderer_handler.Transformation_Mat.createModel(
             renderer.device,
             1.0,
-            .{ 0.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0 },
+            .{ .data = .{ 0.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0 } },
             zm.Mat4f.identity(),
         );
         projections[i] = proj;
@@ -172,7 +172,7 @@ pub fn main() !void {
         const proj = renderer_handler.Transformation_Mat.createModel(
             renderer.device,
             1.0,
-            .{ @as(f32, @floatFromInt(i)) * 2.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0 },
+            .{ .data = .{ @as(f32, @floatFromInt(i)) * 2.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0 } },
             zm.Mat4f.identity(),
         );
         trans_projections[i] = proj;

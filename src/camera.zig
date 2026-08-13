@@ -13,13 +13,15 @@ const SPEED = 10.0;
 const SENSITIVITY = std.math.degreesToRadians(0.1);
 
 fn updateCameraVectors(self: *Camera) void {
-    self.Front = zm.vec.normalize(zm.Vec3f{
+    const front = zm.Vec3f{ .data = .{
         std.math.cos(self.Yaw) * std.math.cos(self.Pitch),
         std.math.sin(self.Pitch),
         std.math.sin(self.Yaw) * std.math.cos(self.Pitch),
-    });
-    self.Right = zm.vec.normalize(zm.vec.cross(self.Front, self.WorldUp));
-    self.Up = zm.vec.normalize(zm.vec.cross(self.Right, self.Front));
+    }};
+    
+    self.Front = front.norm();
+    self.Right = self.Front.crossRH(self.WorldUp).norm();
+    self.Up = self.Right.crossRH(self.Front).norm();
 }
 
 pub const Camera = struct {
@@ -36,24 +38,24 @@ pub const Camera = struct {
     MouseSensitivity: f32 = SENSITIVITY,
 
     pub fn getViewMatrix(self: *Camera) zm.Mat4f {
-        return zm.Mat4f.lookAt(self.Position, self.Position + self.Front, self.Up);
+        return zm.Mat4f.lookAtRH(self.Position, self.Position.add(self.Front), self.Up);
     }
 
     pub fn processKeyboard(self: *Camera, direction: Camera_Movement, deltaTime: f32) void {
         const velocity = self.MovementSpeed * deltaTime;
-        const velocityVector = zm.Vec3f{velocity, velocity, velocity};
+        
         switch (direction) {
             .FORWARD => {
-                self.Position += self.Front * velocityVector;
+                self.Position.addAssign(self.Front.scale(velocity));
             },
             .BACKWARD => {
-                self.Position -= self.Front * velocityVector;
+                self.Position.subAssign(self.Front.scale(velocity));
             },
             .LEFT => {
-                self.Position -= self.Right * velocityVector;
+                self.Position.subAssign(self.Right.scale(velocity));
             },
             .RIGHT => {
-                self.Position += self.Right * velocityVector;
+                self.Position.addAssign(self.Right.scale(velocity));
             }
         }
     }
@@ -76,8 +78,8 @@ pub const Camera = struct {
 pub fn createCamera(position: zm.Vec3f, yaw: f32, pitch: f32) Camera {
     var camera = Camera{
         .Position = position,
-        .WorldUp = .{0.0, 1.0, 0.0},
-        .Front = .{0.0, 0.0, -1.0},
+        .WorldUp = .{ .data = .{0.0, 1.0, 0.0} },
+        .Front = .{ .data = .{0.0, 0.0, -1.0} },
         .Yaw = yaw,
         .Pitch = pitch,
     };

@@ -51,13 +51,12 @@ pub fn build(b: *std.Build) void {
     });
 
     if (target.result.os.tag == .windows) {
-        exe.addLibraryPath(.{ .cwd_relative = "C:/msys64/mingw64/lib" });
-        exe.addIncludePath(.{ .cwd_relative = "C:/msys64/mingw64/include" });
+        exe.root_module.addLibraryPath(.{ .cwd_relative = "C:/msys64/mingw64/lib" });
+        exe.root_module.addIncludePath(.{ .cwd_relative = "C:/msys64/mingw64/include" });
 
-        exe.linkSystemLibrary("glfw3");
-        exe.linkSystemLibrary("gdi32");
-
-        exe.linkSystemLibrary("wgpu_native");
+        exe.root_module.linkSystemLibrary("glfw3", .{});
+        exe.root_module.linkSystemLibrary("gdi32", .{});
+        exe.root_module.linkSystemLibrary("wgpu_native", .{});
 
         const install_dll = b.addInstallBinFile(
             .{ .cwd_relative = "C:/msys64/mingw64/lib/wgpu_native.dll" },

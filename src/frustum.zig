@@ -9,16 +9,16 @@ const Plane = struct {
 
     /// Normalize the plane equation
     pub fn normalize(self: *Plane) void {
-        const len = zm.vec.len(self.normal);
+        const len = self.normal.len();
         if (len > 0.0001) {
-            self.normal = zm.vec.normalize(self.normal);
+            self.normal = self.normal.norm();
             self.d /= len;
         }
     }
 
     /// Get signed distance from point to plane
     pub fn distanceToPoint(self: *const Plane, point: zm.Vec3f) f32 {
-        return zm.vec.dot(self.normal, point) + self.d;
+        return self.normal.dot(point) + self.d;
     }
 };
 
@@ -34,42 +34,42 @@ pub const Frustum = struct {
         var frustum: Frustum = undefined;
         const m = vp.data;
 
-        // For row-major matrix:
-        // Row 0: m[0], m[1], m[2], m[3]
-        // Row 1: m[4], m[5], m[6], m[7]
-        // Row 2: m[8], m[9], m[10], m[11]
-        // Row 3: m[12], m[13], m[14], m[15]
+        // For row-major matrix, data is [4][4]f32:
+        // Row 0: m[0][0..3]
+        // Row 1: m[1][0..3]
+        // Row 2: m[2][0..3]
+        // Row 3: m[3][0..3]
 
         // Gribb/Hartmann for row-major: use rows directly
         // Left plane: row3 + row0
         frustum.planes[0] = .{
-            .normal = .{ m[12] + m[0], m[13] + m[1], m[14] + m[2] },
-            .d = m[15] + m[3],
+            .normal = .{ .data = .{ m[3][0] + m[0][0], m[3][1] + m[0][1], m[3][2] + m[0][2] } },
+            .d = m[3][3] + m[0][3],
         };
         // Right plane: row3 - row0
         frustum.planes[1] = .{
-            .normal = .{ m[12] - m[0], m[13] - m[1], m[14] - m[2] },
-            .d = m[15] - m[3],
+            .normal = .{ .data = .{ m[3][0] - m[0][0], m[3][1] - m[0][1], m[3][2] - m[0][2] } },
+            .d = m[3][3] - m[0][3],
         };
         // Bottom plane: row3 + row1
         frustum.planes[2] = .{
-            .normal = .{ m[12] + m[4], m[13] + m[5], m[14] + m[6] },
-            .d = m[15] + m[7],
+            .normal = .{ .data = .{ m[3][0] + m[1][0], m[3][1] + m[1][1], m[3][2] + m[1][2] } },
+            .d = m[3][3] + m[1][3],
         };
         // Top plane: row3 - row1
         frustum.planes[3] = .{
-            .normal = .{ m[12] - m[4], m[13] - m[5], m[14] - m[6] },
-            .d = m[15] - m[7],
+            .normal = .{ .data = .{ m[3][0] - m[1][0], m[3][1] - m[1][1], m[3][2] - m[1][2] } },
+            .d = m[3][3] - m[1][3],
         };
         // Near plane: row3 + row2
         frustum.planes[4] = .{
-            .normal = .{ m[12] + m[8], m[13] + m[9], m[14] + m[10] },
-            .d = m[15] + m[11],
+            .normal = .{ .data = .{ m[3][0] + m[2][0], m[3][1] + m[2][1], m[3][2] + m[2][2] } },
+            .d = m[3][3] + m[2][3],
         };
         // Far plane: row3 - row2
         frustum.planes[5] = .{
-            .normal = .{ m[12] - m[8], m[13] - m[9], m[14] - m[10] },
-            .d = m[15] - m[11],
+            .normal = .{ .data = .{ m[3][0] - m[2][0], m[3][1] - m[2][1], m[3][2] - m[2][2] } },
+            .d = m[3][3] - m[2][3],
         };
 
         // Normalize all planes
@@ -85,12 +85,12 @@ pub const Frustum = struct {
     pub fn containsAABB(self: *const Frustum, aabb: zm.AABBf) bool {
         for (self.planes) |plane| {
             // Find the positive vertex (the one furthest along the plane normal)
-            const px: f32 = if (plane.normal[0] >= 0) aabb.max[0] else aabb.min[0];
-            const py: f32 = if (plane.normal[1] >= 0) aabb.max[1] else aabb.min[1];
-            const pz: f32 = if (plane.normal[2] >= 0) aabb.max[2] else aabb.min[2];
+            const px: f32 = if (plane.normal.data[0] >= 0) aabb.max.data[0] else aabb.min.data[0];
+            const py: f32 = if (plane.normal.data[1] >= 0) aabb.max.data[1] else aabb.min.data[1];
+            const pz: f32 = if (plane.normal.data[2] >= 0) aabb.max.data[2] else aabb.min.data[2];
 
             // If the positive vertex is outside this plane, the AABB is fully outside
-            if (plane.distanceToPoint(.{ px, py, pz }) < 0) {
+            if (plane.distanceToPoint(.{ .data = .{ px, py, pz } }) < 0) {
                 return false;
             }
         }

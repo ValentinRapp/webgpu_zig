@@ -329,9 +329,9 @@ pub const Renderer = struct {
         });
 
         // Update projection matrix
-        const fov = 2.0 * std.math.atan(1.0 / self.projection.matrix.data[5]);
+        const fov = 2.0 * std.math.atan(1.0 / self.projection.matrix.data[1][1]);
         const aspect_ratio = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
-        self.projection.matrix.data[0] = 1.0 / (aspect_ratio * @tan(fov / 2.0));
+        self.projection.matrix.data[0][0] = 1.0 / (aspect_ratio * @tan(fov / 2.0));
 
         self.queue.writeBuffer(self.projection.buffer, f32, @as(*const [16]f32, @ptrCast(&self.projection.matrix)), 0);
     }
@@ -401,14 +401,14 @@ pub const Renderer = struct {
                 camPos: *const zm.Vec3f,
 
                 pub fn lessThan(ctx: @This(), a: model_handler.Model, b: model_handler.Model) bool {
-                    const dist_a = zm.vec.distance(a.getPos(), ctx.camPos.*);
-                    const dist_b = zm.vec.distance(b.getPos(), ctx.camPos.*);
+                    const dist_a = a.getPos().distance(ctx.camPos.*);
+                    const dist_b = b.getPos().distance(ctx.camPos.*);
                     return dist_a < dist_b;
                 }
 
                 pub fn moreThan(ctx: @This(), a: model_handler.Model, b: model_handler.Model) bool {
-                    const dist_a = zm.vec.distance(a.getPos(), ctx.camPos.*);
-                    const dist_b = zm.vec.distance(b.getPos(), ctx.camPos.*);
+                    const dist_a = a.getPos().distance(ctx.camPos.*);
+                    const dist_b = b.getPos().distance(ctx.camPos.*);
                     return dist_a > dist_b;
                 }
             };
