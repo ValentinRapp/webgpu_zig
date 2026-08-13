@@ -5,7 +5,7 @@ const obj = @import("obj");
 
 pub const Mesh = struct {
     vertices: []const f32,
-    indices: []const u16,
+    indices: []const u32,
 
     // Only use when using dynamic allocation
     pub fn destroy(self: *Mesh, allocator: std.mem.Allocator) void {
@@ -47,7 +47,7 @@ pub const Mesh = struct {
             vertices[i * 8 + 7] = mesh.tex_coords[tex_offset + 1];
         }
 
-        const indices = try allocator.alloc(u16, vertexCount);
+        const indices = try allocator.alloc(u32, vertexCount);
         for (indices, 0..) |*elem, i| {
             elem.* = @intCast(i);
         }
@@ -70,7 +70,7 @@ pub const WgpuMesh = struct {
 
         wgpu_mesh.vertex_buffer = renderer_handler.createBuffer(device, f32, mesh_data.vertices, .{ .vertex = true, .copy_dst = true });
 
-        wgpu_mesh.index_buffer = renderer_handler.createBuffer(device, u16, mesh_data.indices, .{ .index = true, .copy_dst = true });
+        wgpu_mesh.index_buffer = renderer_handler.createBuffer(device, u32, mesh_data.indices, .{ .index = true, .copy_dst = true });
 
         return wgpu_mesh;
     }

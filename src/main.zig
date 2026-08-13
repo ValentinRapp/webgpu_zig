@@ -12,15 +12,15 @@ const zstbi = @import("zstbi");
 const texture_handler = @import("texture.zig");
 const pipeline_handler = @import("pipeline.zig");
 
-// const width = 1710 * 1;
-// const height = 1107 * 1;
-// const width = 1920;
-// const height = 1080;
-// const width = 1280;
-// const height = 720;
+// pub var width = 1710 * 1;
+// pub var height = 1107 * 1;
+pub var width: u32 = 1920;
+pub var height: u32 = 1080;
+// pub var width = 1280;
+// pub var height = 720;
 
-pub var width: u32 = 1280;
-pub var height: u32 = 720;
+// pub var width: u32 = 1280;
+// pub var height: u32 = 720;
 pub var framebuffer_resized = false;
 
 pub var cam = camera.createCamera(.{ .data = .{ 0.0, 0.5, 3.0 } }, -std.math.pi / 2.0, 0.0);
@@ -78,7 +78,7 @@ pub fn main(init: std.process.Init) !void {
     const pipelines = [_]pipeline_handler.Pipeline{
         try pipeline_handler.createSkyboxPipeline(renderer.device, renderer.surface_format),
         try pipeline_handler.createBasicPipeline(renderer.device, renderer.surface_format),
-        try pipeline_handler.createTransparencyPipeline(renderer.device, renderer.surface_format),
+        // try pipeline_handler.createTransparencyPipeline(renderer.device, renderer.surface_format),
     };
     defer pipeline_handler.destroyBasicShaderModule(renderer.device);
     defer pipeline_handler.destroyPipelines(&pipelines);
@@ -90,7 +90,7 @@ pub fn main(init: std.process.Init) !void {
     // var lightmapTexture = try texture_handler.loadTexture("src/assets/textures/dust2lightmap.jpg", .color, renderer.device, renderer.queue);
     // defer lightmapTexture.release();
 
-    var mesh_data = mesh_handler.Mesh.fromFile(allocator, @embedFile("assets/models/obamid.obj")) catch |err| {
+    var mesh_data = mesh_handler.Mesh.fromFile(allocator, @embedFile("assets/models/dragon.obj")) catch |err| {
         std.debug.print("Failed to load model: {}\n", .{err});
         return err;
     };
@@ -104,119 +104,40 @@ pub fn main(init: std.process.Init) !void {
         view.release();
     };
 
-    var projections: [32]renderer_handler.Transformation_Mat = undefined;
+    var projection = renderer_handler.Transformation_Mat.createModel(
+        renderer.device,
+        1.0,
+        .{ .data = .{ 0.0, 0.0, 0.0 } },
+        zm.Mat4f.identity(),
+    );
+    defer projection.buffer.release();
 
-    for (0..32) |i| {
-        const proj = renderer_handler.Transformation_Mat.createModel(
-            renderer.device,
-            1.0,
-            .{ .data = .{ 0.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0 } },
-            zm.Mat4f.identity(),
-        );
-        projections[i] = proj;
-    }
-    defer for (projections) |proj| {
-        proj.buffer.release();
-    };
-
-    var models: [32]model_handler.Model = undefined;
-
-    var bind_groups = try std.ArrayList(*wgpu.bind_group.BindGroup).initCapacity(allocator, 32);
-    defer bind_groups.deinit(allocator);
-    defer utils.releaseBindGroups(bind_groups.items);
-
-    const textures_bind_group = texture_handler.createTextureBindGroup(
-        texture_views.len,
+    var model = try model_handler.Model.create(
+        mesh,
+        .{
+            renderer.projection,
+            renderer.view,
+            projection,
+        },
         pipelines[@intFromEnum(pip_i.basic)].pipeline,
-        renderer.device,
-        1,
-        renderer.sampler,
-        &texture_views,
-    );
-
-    try bind_groups.append(allocator, textures_bind_group);
-
-    for (0..32) |i| {
-
-        const model_bind_group = model_handler.createProjectionsBindGroup(
+        model_handler.createProjectionsBindGroup(
             pipelines[@intFromEnum(pip_i.basic)].pipeline,
             renderer.device,
             0,
-            .{ renderer.projection.buffer, renderer.view.buffer, projections[i].buffer },
-        );
-
-        try bind_groups.append(allocator, model_bind_group);
-
-        models[i] = try model_handler.Model.create(
-            mesh,
-            .{
-                renderer.projection,
-                renderer.view,
-                projections[i],
-            },
+            .{ renderer.projection.buffer, renderer.view.buffer, projection.buffer },
+        ),
+        texture_handler.createTextureBindGroup(
+            texture_views.len,
             pipelines[@intFromEnum(pip_i.basic)].pipeline,
-            model_bind_group,
-            textures_bind_group,
-        );
-    }
-    try renderer.setModels(&pipelines[@intFromEnum(pip_i.basic)], &models);
-
-    const transparent_texture_views = try texture_handler.texViewsFromPaths(1, .{"src/assets/textures/amogos.png"}, .{.color}, renderer.device, renderer.queue);
-    defer for (transparent_texture_views) |view| {
-        view.release();
-    };
-
-    var trans_projections: [32]renderer_handler.Transformation_Mat = undefined;
-
-    for (0..32) |i| {
-        const proj = renderer_handler.Transformation_Mat.createModel(
             renderer.device,
-            1.0,
-            .{ .data = .{ @as(f32, @floatFromInt(i)) * 2.0, 0.0, -@as(f32, @floatFromInt(i)) * 2.0 } },
-            zm.Mat4f.identity(),
-        );
-        trans_projections[i] = proj;
-    }
-    defer for (trans_projections) |proj| {
-        proj.buffer.release();
-    };
-
-    var trans_models: [32]model_handler.Model = undefined;
-
-    const transparent_textures_bind_group = texture_handler.createTextureBindGroup(
-        transparent_texture_views.len,
-        pipelines[@intFromEnum(pip_i.transparent)].pipeline,
-        renderer.device,
-        1,
-        renderer.sampler,
-        &transparent_texture_views,
+            1,
+            renderer.sampler,
+            &texture_views,
+        ),
     );
-    try bind_groups.append(allocator, transparent_textures_bind_group);
+    defer utils.releaseBindGroups(&model.bind_groups);
 
-    for (0..32) |i| {
-
-        const model_trans_bind_group = model_handler.createProjectionsBindGroup(
-            pipelines[@intFromEnum(pip_i.transparent)].pipeline,
-            renderer.device,
-            0,
-            .{ renderer.projection.buffer, renderer.view.buffer, trans_projections[i].buffer },
-        );
-
-        try bind_groups.append(allocator, model_trans_bind_group);
-
-        trans_models[i] = try model_handler.Model.create(
-            mesh,
-            .{
-                renderer.projection,
-                renderer.view,
-                trans_projections[i],
-            },
-            pipelines[@intFromEnum(pip_i.transparent)].pipeline,
-            model_trans_bind_group,
-            transparent_textures_bind_group,
-        );
-    }
-    try renderer.setModels(&pipelines[@intFromEnum(pip_i.transparent)], &trans_models);
+    try renderer.appendModel(&pipelines[@intFromEnum(pip_i.basic)], model);
 
     defer renderer.destroyModels();
 
@@ -241,16 +162,8 @@ pub fn main(init: std.process.Init) !void {
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        // rotation_amount -= 0.03;
-        // model.model_proj.projection = zm.Mat4f.rotation(zm.Vec3f{ 0.0, 1.0, 0.0 }, rotation_amount);
-        // model2.model_proj.projection = zm.Mat4f.rotation(zm.Vec3f{ 0.0, 1.0, 0.0 }, std.math.pi);
-        // model2.model_proj.projection.data[7] = 0.3;
-        // model.model_proj.projection.data[7] = -0.1;
-
         // Update uniform buffers
         renderer.updateView(cam.getViewMatrix());
-        // renderer.queue.writeBuffer(model.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model.model_proj.projection)), 0);
-        // renderer.queue.writeBuffer(model2.model_proj.buffer, f32, @as(*const [16]f32, @ptrCast(&model2.model_proj.projection)), 0);
 
         renderer.draw(cam.Position) catch |err| {
             std.debug.print("Failed to draw frame: {}\n", .{err});

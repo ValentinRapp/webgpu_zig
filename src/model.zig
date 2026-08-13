@@ -92,7 +92,7 @@ pub const Model = struct {
 
     pub fn draw(self: *Model, render_pass: *wgpu.render_pass_encoder.RenderPassEncoder) void {
         render_pass.setVertexBuffer(0, self.mesh.vertex_buffer, 0, self.mesh.vertex_buffer.size());
-        render_pass.setIndexBuffer(self.mesh.index_buffer, .uint16, 0, self.mesh.index_buffer.size());
+        render_pass.setIndexBuffer(self.mesh.index_buffer, .uint32, 0, self.mesh.index_buffer.size());
         render_pass.drawIndexed(@intCast(self.mesh.mesh.indices.len), 1, 0, 0, 0);
     }
 
